@@ -1,4 +1,5 @@
 # AskUHH
+
 ---
 
 ## Quickstart
@@ -16,7 +17,7 @@ cd askuhh
 cp .env.example .env
 ```
 
-Edit `.env` and set your ports (make sure they are not already in use on the cluster):
+Edit `.env` and set your ports (also make sure to set OLLAMA Host to actual IP if running locally):
 
 ```dotenv
 FRONTEND_PORT=3123
@@ -30,11 +31,12 @@ CUDA_VISIBLE_DEVICES=1
 ```bash
 docker compose up --build
 ```
+
 The main containers will start: `askuhh-frontend`, `askuhh-backend`.
 
 ## 4. Ollama container
 
-When not already started, the Ollama container can be started with
+When not already started, the Ollama container can be started with (not needed if running locally):
 
 ```bash
 docker compose --profile ollama up -d ollama
@@ -44,12 +46,6 @@ The Ollama container will start: `askuhh-ollama`.
 
 ### 5. Access the app
 
-From your **local machine**, open an SSH tunnel:
-
-```bash
-ssh -L 3123:localhost:3123 hcdsgpu2
-```
-
 Then open your browser at:
 
 ```
@@ -58,6 +54,6 @@ http://localhost:3123
 
 ### 6. Add documents
 
- Copy PDF files into `backend/data/docs/`
+Copy PDF files into `backend/data/docs/`
 
 ---
