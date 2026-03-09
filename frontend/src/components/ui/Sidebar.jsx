@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { FileText, RefreshCw, Database, Cpu, Server, ChevronDown, ChevronRight } from 'lucide-react'
-import { api } from '../api/client'
+import { api } from '../../api/client'
 
 export default function Sidebar({ status, onStatusRefresh }) {
   const [ingesting, setIngesting] = useState(false)
