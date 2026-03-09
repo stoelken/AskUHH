@@ -53,13 +53,16 @@ def rerank(
     are only included as fallback if not enough 'yes' chunks exist.
     """
     for c in candidates:
-        c["score"] = _score(question, c["text"][:2000], ollama_host, rerank_model)
+        c["_relevant"] = _score(question, c["text"][:2000], ollama_host, rerank_model) == 1.0
 
-    yes_chunks = [c for c in candidates if c["score"] == 1.0]
-    no_chunks  = [c for c in candidates if c["score"] == 0.0]
+    yes_chunks = sorted([c for c in candidates if c["_relevant"]],     key=lambda x: x["score"], reverse=True)
+    no_chunks  = sorted([c for c in candidates if not c["_relevant"]], key=lambda x: x["score"], reverse=True)
 
     result = yes_chunks[:top_k]
     if len(result) < top_k:
         result += no_chunks[:top_k - len(result)]
+
+    for c in result:
+        del c["_relevant"]
 
     return result

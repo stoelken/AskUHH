@@ -181,7 +181,7 @@ def query(req: QueryRequest):
                 "text":  doc,
                 "file":  meta.get("file_name", "Unknown"),
                 "page":  int(meta.get("page", 0)),
-                "score": round(1.0 - dist, 4),
+                "score": round((2.0 - dist) / 2.0, 4),
             }
             for doc, meta, dist in zip(
                 results["documents"][0],
