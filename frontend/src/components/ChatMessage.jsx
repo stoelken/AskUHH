@@ -2,7 +2,7 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { ChevronDown, ChevronUp, BookOpen } from 'lucide-react'
 
-export default function ChatMessage({ role, content, sources }) {
+export default function ChatMessage({ role, content, sources, streaming }) {
   const [srcOpen, setSrcOpen] = useState(false)
   const isUser = role === 'user'
 
@@ -11,9 +11,16 @@ export default function ChatMessage({ role, content, sources }) {
       <div className="message-bubble">
         {isUser ? (
           <p>{content}</p>
-        ) : (
-          <ReactMarkdown>{content}</ReactMarkdown>
-        )}
+        ) : content ? (
+          <div className={streaming ? 'streaming-content' : ''}>
+            <ReactMarkdown>{content}</ReactMarkdown>
+            {streaming && <span className="streaming-cursor" />}
+          </div>
+        ) : streaming ? (
+          <div className="typing">
+            <span /><span /><span />
+          </div>
+        ) : null}
       </div>
 
       {!isUser && sources?.length > 0 && (
