@@ -15,9 +15,11 @@ from pydantic import BaseModel
 
 from .config import (
     CHROMA_DIR, CHUNK_OVERLAP, CHUNK_SIZE, COLLECTION,
-    DOCS_DIR, EMBED_MODEL, LLM_MODEL, OLLAMA_HOST, SYSTEM_PROMPT, TOP_K,
+    DOCS_DIR, EMBED_MODEL, LLM_MODEL, OLLAMA_HOST, RERANK_CANDIDATES,
+    SYSTEM_PROMPT, TOP_K,
 )
 from .embeddings import OllamaEmbeddingFunction, embed_query
+from .reranking import rerank
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +41,7 @@ async def lifespan(app: FastAPI):
     )
     logger.info(f"Embedding model: {EMBED_MODEL} via Ollama")
     logger.info(f"ChromaDB ready. Indexed chunks: {chroma_collection.count()}")
+    logger.info(f"Reranking: LLM listwise via {LLM_MODEL}, candidates={RERANK_CANDIDATES}")
 
     yield
     logger.info("Shutting down.")
@@ -162,18 +165,18 @@ def ingest():
 
 @app.post("/query", response_model=QueryResponse)
 def query(req: QueryRequest):
-    """Embed question, search ChromaDB, generate answer via Ollama."""
+    """Embed question, retrieve candidates, rerank via LLM, generate answer."""
     if chroma_collection.count() == 0:
         raise HTTPException(status_code=400, detail="No documents indexed yet. Call /ingest first.")
 
     try:
         results = chroma_collection.query(
             query_embeddings=[embed_query(req.question)],
-            n_results=min(TOP_K, chroma_collection.count()),
+            n_results=min(RERANK_CANDIDATES, chroma_collection.count()),
             include=["documents", "metadatas", "distances"],
         )
 
-        chunks = [
+        candidates = [
             {
                 "text":  doc,
                 "file":  meta.get("file_name", "Unknown"),
@@ -186,6 +189,8 @@ def query(req: QueryRequest):
                 results["distances"][0],
             )
         ]
+
+        chunks = rerank(req.question, candidates, OLLAMA_HOST, LLM_MODEL, TOP_K)
 
         context = "\n\n---\n\n".join(c['text'] for c in chunks)
 
