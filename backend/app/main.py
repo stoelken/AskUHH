@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from .config import (
     CHROMA_DIR, CHUNK_OVERLAP, CHUNK_SIZE, COLLECTION,
-    DOCS_DIR, EMBED_MODEL, LLM_MODEL, OLLAMA_HOST, RERANK_CANDIDATES,
+    DOCS_DIR, EMBED_MODEL, LLM_MODEL, OLLAMA_HOST, RERANK_CANDIDATES, RERANK_MODEL,
     SYSTEM_PROMPT, TOP_K,
 )
 from .embeddings import OllamaEmbeddingFunction, embed_query
@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
     )
     logger.info(f"Embedding model: {EMBED_MODEL} via Ollama")
     logger.info(f"ChromaDB ready. Indexed chunks: {chroma_collection.count()}")
-    logger.info(f"Reranking: LLM listwise via {LLM_MODEL}, candidates={RERANK_CANDIDATES}")
+    logger.info(f"Reranking: pointwise via {RERANK_MODEL}, candidates={RERANK_CANDIDATES}")
 
     yield
     logger.info("Shutting down.")
@@ -190,7 +190,7 @@ def query(req: QueryRequest):
             )
         ]
 
-        chunks = rerank(req.question, candidates, OLLAMA_HOST, LLM_MODEL, TOP_K)
+        chunks = rerank(req.question, candidates, OLLAMA_HOST, RERANK_MODEL, TOP_K)
 
         context = "\n\n---\n\n".join(c['text'] for c in chunks)
 

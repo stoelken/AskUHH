@@ -1,57 +1,65 @@
-import json
 import logging
-import re
 from typing import List
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
+_RERANK_SYSTEM = (
+    "Judge whether the Document meets the requirements based on the Query and the "
+    "Instruct provided. Note that the answer can only be \"yes\" or \"no\"."
+)
+_INSTRUCT = "Retrieve relevant passages that answer the question"
+
+
+def _score(question: str, doc_text: str, ollama_host: str, rerank_model: str) -> float:
+    """Score a single (question, document) pair using Qwen3-Reranker. Returns 1.0 for 'yes' and 0.0 for 'no'."""
+    user_msg = (
+        f"<Instruct>: {_INSTRUCT}\n"
+        f"<Query>: {question}\n"
+        f"<Document>: {doc_text}"
+    )
+    with httpx.Client(timeout=30) as client:
+        resp = client.post(
+            f"{ollama_host}/api/chat",
+            json={
+                "model": rerank_model,
+                "messages": [
+                    {"role": "system",    "content": _RERANK_SYSTEM},
+                    {"role": "user",      "content": user_msg},
+                    {"role": "assistant", "content": "<think>\n\n</think>\n\n"},
+                ],
+                "stream": False,
+                "options": {"temperature": 0.0, "num_predict": 5},
+            },
+        )
+        resp.raise_for_status()
+
+    answer = resp.json()["message"]["content"].strip().lower()
+    logger.debug(f"Rerank score for chunk: {answer!r}")
+    return 1.0 if answer.startswith("yes") else 0.0
+
 
 def rerank(
     question: str,
     candidates: List[dict],
     ollama_host: str,
-    llm_model: str,
+    rerank_model: str,
     top_k: int,
 ) -> List[dict]:
-    """Listwise reranking via a single LLM call."""
-    prompt = (
-        "You are a document relevance ranking assistant.\n"
-        "Given a question and numbered document passages, return ONLY a JSON array "
-        "of ALL passage indices (0-based) ordered from most to least relevant.\n"
-        "Respond with ONLY the JSON array, nothing else. Example: [2, 0, 4, 1, 3]\n\n"
-        f"Question: {question}\n\n"
-        "Passages:\n"
-    )
-    for i, c in enumerate(candidates):
-        prompt += f"[{i}] {c['text'][:400]}\n\n"
+    """Pointwise reranking: score each candidate independently, sort by score.
 
-    with httpx.Client(timeout=60) as client:
-        resp = client.post(
-            f"{ollama_host}/api/generate",
-            json={
-                "model":   llm_model,
-                "prompt":  prompt,
-                "stream":  False,
-                "think":   False,
-                "options": {"temperature": 0.0, "num_predict": 256},
-            },
-        )
-        resp.raise_for_status()
+    Returns up to top_k candidates. 'yes' chunks are preferred; 'no' chunks
+    are only included as fallback if not enough 'yes' chunks exist.
+    """
+    for c in candidates:
+        c["score"] = _score(question, c["text"][:2000], ollama_host, rerank_model)
 
-    raw = resp.json()["response"].strip()
-    logger.info(f"Reranking raw response: {raw!r}")
+    yes_chunks = [c for c in candidates if c["score"] == 1.0]
+    no_chunks  = [c for c in candidates if c["score"] == 0.0]
 
-    match = re.search(r'\[[\d,\s]+\]', raw)
-    if match:
-        ranked_indices = json.loads(match.group())
-        ranked_indices = [i for i in ranked_indices if 0 <= i < len(candidates)]
-    else:
-        logger.warning("Reranking: could not parse LLM response, using original order")
-        ranked_indices = list(range(len(candidates)))
+    result = yes_chunks[:top_k]
+    if len(result) < top_k:
+        result += no_chunks[:top_k - len(result)]
 
-    for rank, idx in enumerate(ranked_indices):
-        candidates[idx]["score"] = round(1.0 - rank / max(len(ranked_indices), 1), 4)
-
-    return [candidates[i] for i in ranked_indices[:top_k]]
+    return result
