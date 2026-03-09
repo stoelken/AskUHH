@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
+from langdetect import detect
 
 from .config import (
     CHROMA_DIR, CHUNK_OVERLAP, CHUNK_SIZE, COLLECTION,
@@ -189,12 +190,15 @@ def query(req: QueryRequest):
 
         context = "\n\n---\n\n".join(c['text'] for c in chunks)
 
+        lang = detect(req.question)
+
         prompt = (
             "Answer the following question solely based on the provided document excerpts. "
             "Do NOT add any information that is not explicitly stated in the excerpts. "
             "Do not cite sources inline — they are shown separately to the user. "
             "Structure your answer clearly using bullet points or headings where it helps readability. "
             "If the answer is not in the documents, say so clearly.\n\n"
+            f"Always respond in the same language as the question (detected: {lang}). "
             f"Question: {req.question}\n\n"
             f"Context:\n{context}\n\n"
             "Answer:"
