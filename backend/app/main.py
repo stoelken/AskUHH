@@ -1,83 +1,47 @@
-import os
 import logging
-from pathlib import Path
 from contextlib import asynccontextmanager
+from pathlib import Path
+from collections import defaultdict
+from itertools import zip_longest
+from typing import List, Optional
 
+import chromadb
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from langchain_community.document_loaders import PyMuPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
 
-from llama_index.core import (
-    VectorStoreIndex,
-    SimpleDirectoryReader,
-    Settings,
-    StorageContext,
+from .config import (
+    CHROMA_DIR, CHUNK_OVERLAP, CHUNK_SIZE, COLLECTION,
+    DOCS_DIR, EMBED_MODEL, LLM_MODEL, OLLAMA_HOST, SYSTEM_PROMPT, TOP_K,
 )
-from llama_index.core.node_parser import SentenceSplitter
-from llama_index.embeddings.ollama import OllamaEmbedding
-from llama_index.llms.ollama import Ollama
-from llama_index.vector_stores.chroma import ChromaVectorStore
-import chromadb
+from .embeddings import OllamaEmbeddingFunction, embed_query
 
-# ── Logging ───────────────────────────────────────────────────────────────────
-
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
-
-# ── Config ────────────────────────────────────────────────────────────────────
-
-OLLAMA_HOST   = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-DOCS_DIR      = os.getenv("DOCS_DIR", "/data/docs")
-CHROMA_DIR    = os.getenv("CHROMA_DIR", "/data/chroma_db")
-COLLECTION    = "university_legal"
-LLM_MODEL     = os.getenv("LLM_MODEL", "qwen3:8b")
-EMBED_MODEL   = os.getenv("EMBED_MODEL", "snowflake-arctic-embed2")
-CHUNK_SIZE    = int(os.getenv("CHUNK_SIZE", "512"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "64"))
-TOP_K         = int(os.getenv("TOP_K", "4"))
-
-SYSTEM_PROMPT = """You are a helpful assistant for university students.
-You answer questions about university regulations, formal procedures, and legal documents.
-Always be clear, accurate, and student-friendly.
-Always cite which document your answer comes from.
-If the answer is not contained in the provided documents, say so clearly — do not guess.
-Keep answers concise and easy to understand."""
-
-# ── State ─────────────────────────────────────────────────────────────────────
-
 chroma_collection = None
 
-# ── Startup ───────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global chroma_collection
-    logger.info("Initializing LlamaIndex settings...")
-
-    Settings.llm = Ollama(
-        model=LLM_MODEL,
-        base_url=OLLAMA_HOST,
-        request_timeout=180,
-        system_prompt=SYSTEM_PROMPT,
-    )
-    Settings.embed_model = OllamaEmbedding(
-        model_name=EMBED_MODEL,
-        base_url=OLLAMA_HOST,
-    )
-    Settings.text_splitter = SentenceSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-    )
 
     db = chromadb.PersistentClient(path=CHROMA_DIR)
-    chroma_collection = db.get_or_create_collection(COLLECTION)
-    logger.info(f"ChromaDB ready. Chunks indexed: {chroma_collection.count()}")
+    chroma_collection = db.get_or_create_collection(
+        name=COLLECTION,
+        embedding_function=OllamaEmbeddingFunction(),
+        metadata={"hnsw:space": "cosine"},
+    )
+    logger.info(f"Embedding model: {EMBED_MODEL} via Ollama")
+    logger.info(f"ChromaDB ready. Indexed chunks: {chroma_collection.count()}")
 
     yield
     logger.info("Shutting down.")
-
-
-# ── App ───────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="University RAG API", lifespan=lifespan)
 
@@ -88,42 +52,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
-
 class QueryRequest(BaseModel):
     question: str
 
 class SourceNode(BaseModel):
-    file: str
+    file:  str
+    page:  int
     score: float
-    text: str
+    text:  str
 
 class QueryResponse(BaseModel):
-    answer: str
-    sources: list[SourceNode]
+    answer:  str
+    sources: List[SourceNode]
 
 class StatusResponse(BaseModel):
-    pdf_count: int
+    pdf_count:   int
     chunk_count: int
-    documents: list[str]
+    documents:   List[str]
     ollama_host: str
-    llm_model: str
+    llm_model:   str
     embed_model: str
 
 class IngestResponse(BaseModel):
-    success: bool
-    message: str
-    pdf_count: int
-    page_count: int
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def get_index():
-    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-    storage_context = StorageContext.from_defaults(vector_store=vector_store)
-    return VectorStoreIndex.from_vector_store(vector_store, storage_context=storage_context)
-
-# ── Routes ────────────────────────────────────────────────────────────────────
+    success:     bool
+    message:     str
+    pdf_count:   int
+    chunk_count: int
 
 @app.get("/health")
 def health():
@@ -132,8 +86,7 @@ def health():
 
 @app.get("/status", response_model=StatusResponse)
 def status():
-    docs_path = Path(DOCS_DIR)
-    pdf_files = list(docs_path.glob("**/*.pdf"))
+    pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
     return StatusResponse(
         pdf_count=len(pdf_files),
         chunk_count=chroma_collection.count(),
@@ -146,47 +99,133 @@ def status():
 
 @app.post("/ingest", response_model=IngestResponse)
 def ingest():
-    docs_path = Path(DOCS_DIR)
-    pdf_files = list(docs_path.glob("**/*.pdf"))
+    """Load all PDFs, split into chunks, embed, and store in ChromaDB."""
+    pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
 
     if not pdf_files:
-        raise HTTPException(status_code=400, detail="No PDF files found in docs directory.")
+        raise HTTPException(status_code=400, detail=f"No PDF files found in {DOCS_DIR}.")
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        separators=["\n\n", "\n", ". ", "! ", "? ", "; ", " "],
+        length_function=len,
+    )
+
+    all_ids:   List[str]  = []
+    all_texts: List[str]  = []
+    all_metas: List[dict] = []
 
     try:
-        documents = SimpleDirectoryReader(DOCS_DIR, recursive=True).load_data()
-        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        storage_context = StorageContext.from_defaults(vector_store=vector_store)
-        VectorStoreIndex.from_documents(documents, storage_context=storage_context, show_progress=False)
-        logger.info(f"Indexed {len(pdf_files)} PDFs, {len(documents)} pages.")
+        for pdf_path in pdf_files:
+            logger.info(f"Extracting: {pdf_path.name}")
+            for page_doc in PyMuPDFLoader(str(pdf_path)).load():
+                text     = page_doc.page_content.strip()
+                page_num = int(page_doc.metadata.get("page", 0)) + 1
+
+                if not text:
+                    continue
+
+                for idx, chunk in enumerate(splitter.split_text(text)):
+                    chunk = chunk.strip()
+                    if len(chunk) < 40:
+                        continue
+                    all_ids.append(f"{pdf_path.stem}__p{page_num:04d}__c{idx:03d}")
+                    all_texts.append(chunk)
+                    all_metas.append({"file_name": pdf_path.name, "page": page_num})
+
+        if not all_texts:
+            raise HTTPException(status_code=400, detail="PDFs found but no text could be extracted.")
+
+        logger.info(f"Storing {len(all_texts)} chunks in ChromaDB...")
+        BATCH = 64
+        for i in range(0, len(all_texts), BATCH):
+            chroma_collection.upsert(
+                ids=all_ids[i:i+BATCH],
+                documents=all_texts[i:i+BATCH],
+                metadatas=all_metas[i:i+BATCH],
+            )
+            logger.info(f"  {min(i+BATCH, len(all_texts))} / {len(all_texts)} chunks stored")
+
         return IngestResponse(
             success=True,
-            message=f"Successfully indexed {len(pdf_files)} document(s).",
+            message=f"Indexed {len(pdf_files)} PDF(s) into {len(all_ids)} chunks.",
             pdf_count=len(pdf_files),
-            page_count=len(documents),
+            chunk_count=len(all_ids),
         )
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Ingest error: {e}")
+        logger.error(f"Ingest failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/query", response_model=QueryResponse)
 def query(req: QueryRequest):
+    """Embed question, search ChromaDB, generate answer via Ollama."""
     if chroma_collection.count() == 0:
-        raise HTTPException(status_code=400, detail="No documents indexed yet. Run /ingest first.")
+        raise HTTPException(status_code=400, detail="No documents indexed yet. Call /ingest first.")
 
     try:
-        index = get_index()
-        engine = index.as_query_engine(similarity_top_k=TOP_K)
-        response = engine.query(req.question)
-        sources = [
-            SourceNode(
-                file=node.metadata.get("file_name", "Unknown"),
-                score=node.score or 0.0,
-                text=node.text,
+        results = chroma_collection.query(
+            query_embeddings=[embed_query(req.question)],
+            n_results=min(TOP_K, chroma_collection.count()),
+            include=["documents", "metadatas", "distances"],
+        )
+
+        chunks = [
+            {
+                "text":  doc,
+                "file":  meta.get("file_name", "Unknown"),
+                "page":  int(meta.get("page", 0)),
+                "score": round(1.0 - dist, 4),
+            }
+            for doc, meta, dist in zip(
+                results["documents"][0],
+                results["metadatas"][0],
+                results["distances"][0],
             )
-            for node in response.source_nodes
         ]
-        return QueryResponse(answer=str(response), sources=sources)
+
+        context = "\n\n---\n\n".join(
+            f"[Source: {c['file']}, Page {c['page']}]\n{c['text']}"
+            for c in chunks
+        )
+
+        prompt = (
+            "Answer the following question solely based on the provided document excerpts. "
+            "Do not cite sources inline — they are shown separately to the user. "
+            "Structure your answer clearly using bullet points or headings where it helps readability. "
+            "If the answer is not in the documents, say so clearly.\n\n"
+            f"Question: {req.question}\n\n"
+            f"Context:\n{context}\n\n"
+            "Answer:"
+        )
+
+        with httpx.Client(timeout=180) as client:
+            resp = client.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={
+                    "model":   LLM_MODEL,
+                    "prompt":  prompt,
+                    "system":  SYSTEM_PROMPT,
+                    "stream":  False,
+                    "options": {"temperature": 0.1, "num_predict": 1024},
+                },
+            )
+            resp.raise_for_status()
+
+        return QueryResponse(
+            answer=resp.json()["response"].strip(),
+            sources=[
+                SourceNode(file=c["file"], page=c["page"], score=c["score"], text=c["text"])
+                for c in chunks
+            ],
+        )
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Query error: {e}")
+        logger.error(f"Query failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
