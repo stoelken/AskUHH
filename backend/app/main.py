@@ -96,7 +96,6 @@ def status():
         embed_model=EMBED_MODEL,
     )
 
-
 @app.post("/ingest", response_model=IngestResponse)
 def ingest():
     """Load all PDFs, split into chunks, embed, and store in ChromaDB."""
@@ -131,7 +130,7 @@ def ingest():
                     if len(chunk) < 40:
                         continue
                     all_ids.append(f"{pdf_path.stem}__p{page_num:04d}__c{idx:03d}")
-                    all_texts.append(chunk)
+                    all_texts.append(f"[Document: {pdf_path.name}]\n{chunk}")
                     all_metas.append({"file_name": pdf_path.name, "page": page_num})
 
         if not all_texts:
@@ -188,13 +187,11 @@ def query(req: QueryRequest):
             )
         ]
 
-        context = "\n\n---\n\n".join(
-            f"[Source: {c['file']}, Page {c['page']}]\n{c['text']}"
-            for c in chunks
-        )
+        context = "\n\n---\n\n".join(c['text'] for c in chunks)
 
         prompt = (
             "Answer the following question solely based on the provided document excerpts. "
+            "Do NOT add any information that is not explicitly stated in the excerpts. "
             "Do not cite sources inline — they are shown separately to the user. "
             "Structure your answer clearly using bullet points or headings where it helps readability. "
             "If the answer is not in the documents, say so clearly.\n\n"
