@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Trash2, GraduationCap, AlertCircle } from 'lucide-react'
+import { Send, Trash2, GraduationCap, AlertCircle, Square } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import ChatMessage from './components/ChatMessage'
 import { useStatus } from './hooks/useStatus'
@@ -12,6 +12,7 @@ export default function App() {
   const [querying, setQuerying] = useState(false)
   const [queryError, setQueryError] = useState(null)
   const bottomRef = useRef(null)
+  const abortRef = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -22,16 +23,86 @@ export default function App() {
     if (!q || querying) return
     setInput('')
     setQueryError(null)
+
+    // Add user message
     setMessages(m => [...m, { role: 'user', content: q }])
+
+    setMessages(m => [...m, { role: 'assistant', content: '', sources: [], streaming: true }])
     setQuerying(true)
+
+    // Abort controller for cancellation
+    const abortController = new AbortController()
+    abortRef.current = abortController
+
     try {
-      const res = await api.query(q)
-      setMessages(m => [...m, { role: 'assistant', content: res.answer, sources: res.sources }])
+      await api.queryStream(
+        q,
+        {
+          onSources(sources) {
+            setMessages(m => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') {
+                updated[updated.length - 1] = { ...last, sources }
+              }
+              return updated
+            })
+          },
+          onToken(token) {
+            setMessages(m => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') {
+                updated[updated.length - 1] = { ...last, content: last.content + token }
+              }
+              return updated
+            })
+          },
+          onDone() {
+            setMessages(m => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') {
+                updated[updated.length - 1] = { ...last, streaming: false }
+              }
+              return updated
+            })
+          },
+          onError(err) {
+            setQueryError(err.message)
+            setMessages(m => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') {
+                updated[updated.length - 1] = { ...last, streaming: false }
+              }
+              return updated
+            })
+          },
+        },
+        abortController.signal,
+      )
     } catch (e) {
-      setQueryError(e.message)
+      if (e.name !== 'AbortError') {
+        setQueryError(e.message)
+      }
+      // Mark streaming as done on error/abort
+      setMessages(m => {
+        const updated = [...m]
+        const last = updated[updated.length - 1]
+        if (last?.role === 'assistant') {
+          updated[updated.length - 1] = { ...last, streaming: false }
+        }
+        return updated
+      })
     } finally {
       setQuerying(false)
+      abortRef.current = null
     }
+  }
+
+  function handleStop() {
+    abortRef.current?.abort()
   }
 
   function handleKey(e) {
@@ -83,14 +154,6 @@ export default function App() {
             <ChatMessage key={i} {...msg} />
           ))}
 
-          {querying && (
-            <div className="message message-assistant">
-              <div className="message-bubble typing">
-                <span /><span /><span />
-              </div>
-            </div>
-          )}
-
           {queryError && (
             <div className="banner banner-err">
               <AlertCircle size={14} />
@@ -112,13 +175,24 @@ export default function App() {
             onKeyDown={handleKey}
             disabled={querying || notIndexed}
           />
-          <button
-            className="send-btn"
-            onClick={handleSend}
-            disabled={!input.trim() || querying || notIndexed}
-          >
-            <Send size={18} />
-          </button>
+
+          {querying ? (
+            <button
+              className="stop-btn"
+              onClick={handleStop}
+              title="Stop generating"
+            >
+              <Square size={16} />
+            </button>
+          ) : (
+            <button
+              className="send-btn"
+              onClick={handleSend}
+              disabled={!input.trim() || notIndexed}
+            >
+              <Send size={18} />
+            </button>
+          )}
 
           {messages.length > 0 && (
             <button
