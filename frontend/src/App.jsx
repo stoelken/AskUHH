@@ -19,10 +19,8 @@ export default function App() {
   const hasStarted = messages.length > 0
 
   function handleAbort() {
-    if (abortRef.current) {
-      abortRef.current.abort()
-      abortRef.current = null
-    }
+    abortRef.current?.abort()
+    abortRef.current = null
     setQuerying(false)
     setAnimating(false)
   }
@@ -31,7 +29,6 @@ export default function App() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, querying])
 
-  // Auto-resize textarea
   useEffect(() => {
     const ta = textareaRef.current
     if (!ta) return
@@ -43,23 +40,79 @@ export default function App() {
     const q = input.trim()
     if (!q || querying || animating) return
 
-    // 1. Vanish-Animation starten
     setAnimating(true)
-
-    // 2. Nach Animation: Input leeren, Message + Query starten
     setTimeout(async () => {
       setAnimating(false)
       setInput('')
       setQueryError(null)
+
       setMessages(m => [...m, { role: 'user', content: q }])
+      setMessages(m => [...m, { role: 'assistant', content: '', sources: [], streaming: true }])
       setQuerying(true)
+
       const controller = new AbortController()
       abortRef.current = controller
+
       try {
-        const res = await api.query(q, controller.signal)
-        setMessages(m => [...m, { role: 'assistant', content: res.answer, sources: res.sources }])
+        await api.queryStream(
+          q,
+          {
+            onSources(sources) {
+              setMessages(m => {
+                const updated = [...m]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, sources }
+                }
+                return updated
+              })
+            },
+            onToken(token) {
+              setMessages(m => {
+                const updated = [...m]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, content: last.content + token }
+                }
+                return updated
+              })
+            },
+            onDone() {
+              setMessages(m => {
+                const updated = [...m]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, streaming: false }
+                }
+                return updated
+              })
+            },
+            onError(err) {
+              setQueryError(err.message)
+              setMessages(m => {
+                const updated = [...m]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, streaming: false }
+                }
+                return updated
+              })
+            },
+          },
+          controller.signal,
+        )
       } catch (e) {
-        if (e.name !== 'AbortError') setQueryError(e.message)
+        if (e.name !== 'AbortError') {
+          setQueryError(e.message)
+        }
+        setMessages(m => {
+          const updated = [...m]
+          const last = updated[updated.length - 1]
+          if (last?.role === 'assistant') {
+            updated[updated.length - 1] = { ...last, streaming: false }
+          }
+          return updated
+        })
       } finally {
         abortRef.current = null
         setQuerying(false)
@@ -122,7 +175,6 @@ export default function App() {
       <Sidebar status={status} onStatusRefresh={refresh} />
 
       <main className="main" role="main" aria-label="Chat interface">
-        {/* Header */}
         <header className="main-header">
           <GraduationCap size={22} />
           <div>
@@ -131,7 +183,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* Banners (always visible) */}
         {statusError && (
           <div className="banner banner-err" style={{ margin: '16px 28px 0' }}>
             <AlertCircle size={15} />
@@ -145,31 +196,16 @@ export default function App() {
         )}
 
         {!hasStarted ? (
-          /* ── Centered start screen ── */
           <div className="centered-input-wrap">
             <p className="centered-hint">What do you want to know?</p>
             {inputBox(true)}
           </div>
         ) : (
-          /* ── Chat + bottom input ── */
           <div className="chat-wrapper">
-            <div
-              className="chat-area"
-              role="log"
-              aria-live="polite"
-              aria-label="Chat messages"
-            >
+            <div className="chat-area" role="log" aria-live="polite" aria-label="Chat messages">
               {messages.map((msg, i) => (
                 <MessageItem key={i} {...msg} />
               ))}
-
-              {querying && (
-                <div className="message message-assistant" aria-label="Assistant is typing">
-                  <div className="message-bubble typing" role="status">
-                    <span /><span /><span />
-                  </div>
-                </div>
-              )}
 
               {queryError && (
                 <div className="banner banner-err" role="alert">
