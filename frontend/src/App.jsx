@@ -27,8 +27,6 @@ export default function App() {
     // Add user message
     setMessages(m => [...m, { role: 'user', content: q }])
 
-    // Add empty assistant message that we'll stream into
-    const assistantIdx = messages.length + 1
     setMessages(m => [...m, { role: 'assistant', content: '', sources: [], streaming: true }])
     setQuerying(true)
 
