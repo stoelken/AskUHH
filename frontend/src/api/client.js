@@ -92,9 +92,10 @@ async function queryStream(question, { onSources, onToken, onDone, onError }, si
 export const api = {
   status: () => request('/status'),
   ingest: () => request('/ingest', { method: 'POST' }),
-  query:  (question) => request('/query', {
+  query:  (question, signal) => request('/query', {
     method: 'POST',
     body: JSON.stringify({ question }),
+    ...(signal ? { signal } : {}),
   }),
   queryStream,
 }

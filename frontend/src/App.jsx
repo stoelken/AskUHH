@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Trash2, GraduationCap, AlertCircle, Square } from 'lucide-react'
-import Sidebar from './components/Sidebar'
-import ChatMessage from './components/ChatMessage'
+import { Send, StopCircle, GraduationCap, AlertCircle } from 'lucide-react'
+import Sidebar from './components/ui/Sidebar'
 import { useStatus } from './hooks/useStatus'
 import { api } from './api/client'
+import { Button } from './components/ui/button'
+import { MessageItem } from './components/ui/message-item'
 
 export default function App() {
   const { status, loading: statusLoading, error: statusError, refresh } = useStatus()
@@ -11,98 +12,112 @@ export default function App() {
   const [input, setInput] = useState('')
   const [querying, setQuerying] = useState(false)
   const [queryError, setQueryError] = useState(null)
+  const [animating, setAnimating] = useState(false)
   const bottomRef = useRef(null)
+  const textareaRef = useRef(null)
   const abortRef = useRef(null)
+  const hasStarted = messages.length > 0
+
+  function handleAbort() {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setQuerying(false)
+    setAnimating(false)
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, querying])
 
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
+  }, [input])
+
   async function handleSend() {
     const q = input.trim()
-    if (!q || querying) return
-    setInput('')
-    setQueryError(null)
+    if (!q || querying || animating) return
 
-    // Add user message
-    setMessages(m => [...m, { role: 'user', content: q }])
+    setAnimating(true)
+    setTimeout(async () => {
+      setAnimating(false)
+      setInput('')
+      setQueryError(null)
 
-    setMessages(m => [...m, { role: 'assistant', content: '', sources: [], streaming: true }])
-    setQuerying(true)
+      setMessages(m => [...m, { role: 'user', content: q }])
+      setMessages(m => [...m, { role: 'assistant', content: '', sources: [], streaming: true }])
+      setQuerying(true)
 
-    // Abort controller for cancellation
-    const abortController = new AbortController()
-    abortRef.current = abortController
+      const controller = new AbortController()
+      abortRef.current = controller
 
-    try {
-      await api.queryStream(
-        q,
-        {
-          onSources(sources) {
-            setMessages(m => {
-              const updated = [...m]
-              const last = updated[updated.length - 1]
-              if (last?.role === 'assistant') {
-                updated[updated.length - 1] = { ...last, sources }
-              }
-              return updated
-            })
+      try {
+        await api.queryStream(
+          q,
+          {
+            onSources(sources) {
+              setMessages(m => {
+                const updated = [...m]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, sources }
+                }
+                return updated
+              })
+            },
+            onToken(token) {
+              setMessages(m => {
+                const updated = [...m]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, content: last.content + token }
+                }
+                return updated
+              })
+            },
+            onDone() {
+              setMessages(m => {
+                const updated = [...m]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, streaming: false }
+                }
+                return updated
+              })
+            },
+            onError(err) {
+              setQueryError(err.message)
+              setMessages(m => {
+                const updated = [...m]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, streaming: false }
+                }
+                return updated
+              })
+            },
           },
-          onToken(token) {
-            setMessages(m => {
-              const updated = [...m]
-              const last = updated[updated.length - 1]
-              if (last?.role === 'assistant') {
-                updated[updated.length - 1] = { ...last, content: last.content + token }
-              }
-              return updated
-            })
-          },
-          onDone() {
-            setMessages(m => {
-              const updated = [...m]
-              const last = updated[updated.length - 1]
-              if (last?.role === 'assistant') {
-                updated[updated.length - 1] = { ...last, streaming: false }
-              }
-              return updated
-            })
-          },
-          onError(err) {
-            setQueryError(err.message)
-            setMessages(m => {
-              const updated = [...m]
-              const last = updated[updated.length - 1]
-              if (last?.role === 'assistant') {
-                updated[updated.length - 1] = { ...last, streaming: false }
-              }
-              return updated
-            })
-          },
-        },
-        abortController.signal,
-      )
-    } catch (e) {
-      if (e.name !== 'AbortError') {
-        setQueryError(e.message)
-      }
-      // Mark streaming as done on error/abort
-      setMessages(m => {
-        const updated = [...m]
-        const last = updated[updated.length - 1]
-        if (last?.role === 'assistant') {
-          updated[updated.length - 1] = { ...last, streaming: false }
+          controller.signal,
+        )
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          setQueryError(e.message)
         }
-        return updated
-      })
-    } finally {
-      setQuerying(false)
-      abortRef.current = null
-    }
-  }
-
-  function handleStop() {
-    abortRef.current?.abort()
+        setMessages(m => {
+          const updated = [...m]
+          const last = updated[updated.length - 1]
+          if (last?.role === 'assistant') {
+            updated[updated.length - 1] = { ...last, streaming: false }
+          }
+          return updated
+        })
+      } finally {
+        abortRef.current = null
+        setQuerying(false)
+      }
+    }, 380)
   }
 
   function handleKey(e) {
@@ -114,12 +129,52 @@ export default function App() {
 
   const notIndexed = !statusLoading && status?.chunk_count === 0
 
+  const inputBox = (centered) => (
+    <div className={centered ? 'input-row input-row--centered' : 'input-row'}>
+      <textarea
+        ref={textareaRef}
+        className={`chat-textarea${animating ? ' chat-textarea--vanishing' : ''}${!centered ? ' chat-textarea--followup' : ''}`}
+        placeholder={centered ? 'Ask about university regulations… (Enter to send, Shift+Enter for new line)' : 'Follow-up question…'}
+        value={input}
+        onChange={e => !animating && setInput(e.target.value)}
+        onKeyDown={handleKey}
+        disabled={notIndexed}
+        rows={1}
+        aria-label={centered ? 'Ask a question' : 'Follow-up question'}
+        aria-disabled={notIndexed}
+        aria-busy={querying}
+      />
+      <div className="input-actions">
+        {querying ? (
+          <Button
+            onClick={handleAbort}
+            size="icon"
+            variant="ghost"
+            className="shrink-0 text-err hover:text-err"
+            title="Stop generation"
+          >
+            <StopCircle size={18} />
+          </Button>
+        ) : (
+          <Button
+            onClick={handleSend}
+            disabled={!input.trim() || animating || notIndexed}
+            size="icon"
+            className="shrink-0"
+            title="Send"
+          >
+            <Send size={18} />
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+
   return (
     <div className="layout">
       <Sidebar status={status} onStatusRefresh={refresh} />
 
-      <main className="main">
-        {/* Header */}
+      <main className="main" role="main" aria-label="Chat interface">
         <header className="main-header">
           <GraduationCap size={22} />
           <div>
@@ -128,82 +183,45 @@ export default function App() {
           </div>
         </header>
 
-        {/* Chat area */}
-        <div className="chat-area">
-          {statusError && (
-            <div className="banner banner-err">
-              <AlertCircle size={15} />
-              Backend unreachable: {statusError}
+        {statusError && (
+          <div className="banner banner-err" style={{ margin: '16px 28px 0' }}>
+            <AlertCircle size={15} />
+            Backend unreachable: {statusError}
+          </div>
+        )}
+        {notIndexed && !statusError && (
+          <div className="banner banner-info" style={{ margin: '16px 28px 0' }}>
+            No documents indexed yet. Add PDFs to <code>backend/data/docs/</code> and click <strong>Index / Re-index</strong> in the sidebar.
+          </div>
+        )}
+
+        {!hasStarted ? (
+          <div className="centered-input-wrap">
+            <p className="centered-hint">What do you want to know?</p>
+            {inputBox(true)}
+          </div>
+        ) : (
+          <div className="chat-wrapper">
+            <div className="chat-area" role="log" aria-live="polite" aria-label="Chat messages">
+              {messages.map((msg, i) => (
+                <MessageItem key={i} {...msg} />
+              ))}
+
+              {queryError && (
+                <div className="banner banner-err" role="alert">
+                  <AlertCircle size={14} />
+                  {queryError}
+                </div>
+              )}
+
+              <div ref={bottomRef} aria-hidden="true" />
             </div>
-          )}
 
-          {notIndexed && !statusError && (
-            <div className="banner banner-info">
-              No documents indexed yet. Add PDFs to <code>backend/data/docs/</code> and click <strong>Index / Re-index</strong> in the sidebar.
+            <div className="input-footer">
+              {inputBox(false)}
             </div>
-          )}
-
-          {messages.length === 0 && !notIndexed && (
-            <div className="empty-state">
-              <span className="empty-icon">📋</span>
-              <p>Ask anything about university regulations</p>
-            </div>
-          )}
-
-          {messages.map((msg, i) => (
-            <ChatMessage key={i} {...msg} />
-          ))}
-
-          {queryError && (
-            <div className="banner banner-err">
-              <AlertCircle size={14} />
-              {queryError}
-            </div>
-          )}
-
-          <div ref={bottomRef} />
-        </div>
-
-        {/* Input */}
-        <div className="input-row">
-          <textarea
-            className="chat-input"
-            rows={1}
-            placeholder="Ask about university regulations…"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKey}
-            disabled={querying || notIndexed}
-          />
-
-          {querying ? (
-            <button
-              className="stop-btn"
-              onClick={handleStop}
-              title="Stop generating"
-            >
-              <Square size={16} />
-            </button>
-          ) : (
-            <button
-              className="send-btn"
-              onClick={handleSend}
-              disabled={!input.trim() || notIndexed}
-            >
-              <Send size={18} />
-            </button>
-          )}
-
-          {messages.length > 0 && (
-            <button
-              className="clear-btn"
-              onClick={() => setMessages([])}
-              title="Clear chat"
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
-        </div>
+          </div>
+        )}
       </main>
     </div>
   )
