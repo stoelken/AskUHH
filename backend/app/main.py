@@ -2,15 +2,13 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from collections import defaultdict
-from itertools import zip_longest
-from typing import List, Optional
+from typing import List
 
 import chromadb
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
@@ -95,6 +93,14 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/pdf/{filename}")
+def serve_pdf(filename: str):
+    pdf_path = Path(DOCS_DIR) / filename
+    if not pdf_path.exists() or pdf_path.suffix.lower() != ".pdf":
+        raise HTTPException(status_code=404, detail="PDF not found")
+    return FileResponse(pdf_path, media_type="application/pdf")
+
+
 @app.get("/status", response_model=StatusResponse)
 def status():
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
@@ -114,6 +120,12 @@ def ingest():
 
     if not pdf_files:
         raise HTTPException(status_code=400, detail=f"No PDF files found in {DOCS_DIR}.")
+
+    # Clearing
+    existing_ids = chroma_collection.get()["ids"]
+    if existing_ids:
+        chroma_collection.delete(ids=existing_ids)
+        logger.info(f"Cleared {len(existing_ids)} existing chunks before re-indexing.")
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
@@ -183,7 +195,7 @@ def _retrieve_chunks(question: str) -> list:
             "text":  doc,
             "file":  meta.get("file_name", "Unknown"),
             "page":  int(meta.get("page", 0)),
-            "score": round(1.0 - dist, 4),
+            "score": round(max(0.0, 1.0 - dist), 4),
         }
         for doc, meta, dist in zip(
             results["documents"][0],
@@ -243,14 +255,11 @@ def query_stream(req: QueryRequest):
         logger.error(f"Retrieval failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-    sources = [
-        {"file_name": c["file"], "page_num": c["page"], "score": c["score"], "text": c["text"]}
-        for c in chunks
-    ]
+    pdf_names = list(dict.fromkeys(c["file"] for c in chunks))[:3]
 
     def event_generator():
-        # 1) Send sources as the first event
-        yield f"event: sources\ndata: {json.dumps(sources)}\n\n"
+        # 1) Send deduplicated PDF filenames as the first event
+        yield f"event: sources\ndata: {json.dumps(pdf_names)}\n\n"
 
         # 2) Stream LLM tokens from Ollama
         try:
