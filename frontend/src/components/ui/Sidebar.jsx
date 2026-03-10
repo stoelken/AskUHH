@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { FileText, RefreshCw, Database, Cpu, Server, ChevronDown, ChevronRight } from 'lucide-react'
+import { FileText, RefreshCw, Database, Cpu, Server, ChevronDown, ChevronRight, Moon, Sun } from 'lucide-react'
 import { api } from '../../api/client'
 
-export default function Sidebar({ status, onStatusRefresh }) {
+export default function Sidebar({ status, onStatusRefresh, dark, onToggleTheme }) {
   const [ingesting, setIngesting] = useState(false)
   const [ingestMsg, setIngestMsg] = useState(null)
   const [docsOpen, setDocsOpen] = useState(true)
@@ -87,6 +87,12 @@ export default function Sidebar({ status, onStatusRefresh }) {
           <span className="truncate">{status?.ollama_host ?? '—'}</span>
         </div>
       </div>
+
+      {/* Theme toggle */}
+      <button className="theme-toggle" onClick={onToggleTheme}>
+        {dark ? <Sun size={14} /> : <Moon size={14} />}
+        <span>{dark ? 'Light Mode' : 'Dark Mode'}</span>
+      </button>
 
       {/* How-to */}
       <div className="howto">
