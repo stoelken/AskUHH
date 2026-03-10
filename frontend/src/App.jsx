@@ -26,10 +26,15 @@ export default function App() {
   const [querying, setQuerying] = useState(false)
   const [queryError, setQueryError] = useState(null)
   const [animating, setAnimating] = useState(false)
+  const [dark, setDark] = useState(false)
   const bottomRef = useRef(null)
   const textareaRef = useRef(null)
   const abortRef = useRef(null)
   const hasStarted = messages.length > 0
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
+  }, [dark])
 
   function handleAbort() {
     abortRef.current?.abort()
@@ -179,7 +184,7 @@ export default function App() {
             onClick={handleAbort}
             size="icon"
             variant="ghost"
-            className="shrink-0 text-err hover:text-err"
+            className="stop-btn shrink-0"
             title="Stop generation"
           >
             <StopCircle size={18} />
@@ -189,7 +194,7 @@ export default function App() {
             onClick={handleSend}
             disabled={!input.trim() || animating || notIndexed}
             size="icon"
-            className="shrink-0"
+            className="send-btn shrink-0"
             title="Send"
           >
             <Send size={18} />
@@ -201,7 +206,7 @@ export default function App() {
 
   return (
     <div className="layout">
-      <Sidebar status={status} onStatusRefresh={refresh} />
+      <Sidebar status={status} onStatusRefresh={refresh} dark={dark} onToggleTheme={() => setDark((d) => !d)} />
 
       <main className="main" role="main" aria-label="Chat interface">
         {statusError && (
