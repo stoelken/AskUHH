@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { BookOpen, ChevronDown, ChevronUp } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronUp, FileText } from 'lucide-react'
 import { Button } from './button'
+import { PdfModal, readableTitle } from './PdfModal'
 import { cn } from '@/lib/utils'
 
 export function MessageItem({ role, content, sources, streaming = false }) {
   const [srcOpen, setSrcOpen] = useState(false)
   const isUser = role === 'user'
   const showTyping = !isUser && streaming && !content?.trim()
+  const pdfs = sources ?? []
 
   return (
     <div
@@ -52,7 +54,7 @@ export function MessageItem({ role, content, sources, streaming = false }) {
         )}
       </div>
 
-      {!isUser && sources?.length > 0 && (
+      {!isUser && !streaming && pdfs.length > 0 && (
         <div className="flex flex-col gap-2 w-full">
           <Button
             variant="ghost"
@@ -62,28 +64,29 @@ export function MessageItem({ role, content, sources, streaming = false }) {
           >
             <BookOpen size={12} />
             <span>
-              {sources.length} source{sources.length > 1 ? 's' : ''}
+              {pdfs.length} Dokument{pdfs.length > 1 ? 'e' : ''}
             </span>
             {srcOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </Button>
 
           {srcOpen && (
             <div className="flex flex-col gap-2 pl-4 border-l-2 border-accent/30">
-              {sources.map((src, i) => (
-                <div key={i} className="bg-surface2 border border-border rounded-md p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-accent truncate">
-                      {src.file_name}
-                    </span>
-                    <span className="text-xs text-text-muted ml-2">
-                      {(src.score * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                  <p className="text-xs text-text-muted leading-relaxed">
-                    {src.text.slice(0, 300)}
-                    {src.text.length > 300 ? '…' : ''}
-                  </p>
-                </div>
+              {pdfs.map((filename) => (
+                <PdfModal
+                  key={filename}
+                  filename={filename}
+                  trigger={
+                    <button className="flex items-center gap-3 bg-surface2 border border-border rounded-md p-3 text-left w-full hover:border-accent/50 hover:bg-surface2/80 transition-colors cursor-pointer">
+                      <FileText size={16} className="text-accent shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-accent truncate">
+                          {readableTitle(filename)}
+                        </p>
+                        <p className="text-xs text-text-muted mt-0.5">PDF öffnen</p>
+                      </div>
+                    </button>
+                  }
+                />
               ))}
             </div>
           )}
