@@ -46,7 +46,7 @@ export function MessageItem({ role, content, sources, streaming = false }) {
             <span />
           </div>
         ) : (
-          <div className="prose prose-sm prose-invert max-w-none [&>*]:my-2 [&>p]:leading-relaxed">
+          <div className="prose prose-sm prose-invert max-w-none [&>*]:my-6 [&>p]:leading-relaxed">
             <ReactMarkdown>{content}</ReactMarkdown>
           </div>
         )}
