@@ -30,14 +30,14 @@ def _score(question: str, doc_text: str, ollama_host: str, rerank_model: str) ->
                     {"role": "assistant", "content": "<think>\n\n</think>\n\n"},
                 ],
                 "stream": False,
-                "options": {"temperature": 0.0, "num_predict": 5},
+                "options": {"temperature": 0.0, "num_predict": 32},
             },
         )
         resp.raise_for_status()
 
     answer = resp.json()["message"]["content"].strip().lower()
-    logger.debug(f"Rerank score for chunk: {answer!r}")
-    return 1.0 if answer.startswith("yes") else 0.0
+    relevant = "yes" in answer and "no" not in answer.split("yes")[0]
+    return 1.0 if relevant else 0.0
 
 
 def rerank(
@@ -54,9 +54,12 @@ def rerank(
     """
     for c in candidates:
         c["_relevant"] = _score(question, c["text"][:2000], ollama_host, rerank_model) == 1.0
+        logger.info(f"Rerank: {'YES' if c['_relevant'] else 'NO '} | {c['file']} p{c['page']} | {c['text'][:60]!r}")
 
     yes_chunks = sorted([c for c in candidates if c["_relevant"]],     key=lambda x: x["score"], reverse=True)
     no_chunks  = sorted([c for c in candidates if not c["_relevant"]], key=lambda x: x["score"], reverse=True)
+
+    logger.info(f"Rerank summary: {len(yes_chunks)} yes, {len(no_chunks)} no out of {len(candidates)} candidates")
 
     result = yes_chunks[:top_k]
     if len(result) < top_k:

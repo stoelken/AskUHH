@@ -61,16 +61,6 @@ app.add_middleware(
 class QueryRequest(BaseModel):
     question: str
 
-class SourceNode(BaseModel):
-    file:  str
-    page:  int
-    score: float
-    text:  str
-
-class QueryResponse(BaseModel):
-    answer:  str
-    sources: List[SourceNode]
-
 class StatusResponse(BaseModel):
     pdf_count:   int
     chunk_count: int
@@ -136,7 +126,7 @@ def ingest():
                     if len(chunk) < 40:
                         continue
                     all_ids.append(f"{pdf_path.stem}__p{page_num:04d}__c{idx:03d}")
-                    all_texts.append(f"[Document: {pdf_path.name}]\n{chunk}")
+                    all_texts.append(chunk)
                     all_metas.append({"file_name": pdf_path.name, "page": page_num})
 
         if not all_texts:
@@ -166,87 +156,14 @@ def ingest():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/query", response_model=QueryResponse)
-def query(req: QueryRequest):
-    """Embed question, retrieve candidates, rerank via LLM, generate answer."""
-    if chroma_collection.count() == 0:
-        raise HTTPException(status_code=400, detail="No documents indexed yet. Call /ingest first.")
-
-    try:
-        results = chroma_collection.query(
-            query_embeddings=[embed_query(req.question)],
-            n_results=min(RERANK_CANDIDATES, chroma_collection.count()),
-            include=["documents", "metadatas", "distances"],
-        )
-
-        candidates = [
-            {
-                "text":  doc,
-                "file":  meta.get("file_name", "Unknown"),
-                "page":  int(meta.get("page", 0)),
-                "score": round((2.0 - dist) / 2.0, 4),
-            }
-            for doc, meta, dist in zip(
-                results["documents"][0],
-                results["metadatas"][0],
-                results["distances"][0],
-            )
-        ]
-
-        chunks = rerank(req.question, candidates, OLLAMA_HOST, RERANK_MODEL, TOP_K)
-
-        context = "\n\n---\n\n".join(c['text'] for c in chunks)
-
-        lang = detect(req.question)
-
-        prompt = (
-            "Answer the following question solely based on the provided document excerpts. "
-            "Do NOT add any information that is not explicitly stated in the excerpts. "
-            "Do not cite sources inline — they are shown separately to the user. "
-            "Structure your answer clearly using bullet points or headings where it helps readability. "
-            "If the answer is not in the documents, say so clearly.\n\n"
-            f"Always respond in the same language as the question (detected: {lang}). "
-            f"Question: {req.question}\n\n"
-            f"Context:\n{context}\n\n"
-            "Answer:"
-        )
-
-        with httpx.Client(timeout=180) as client:
-            resp = client.post(
-                f"{OLLAMA_HOST}/api/generate",
-                json={
-                    "model":   LLM_MODEL,
-                    "prompt":  prompt,
-                    "system":  SYSTEM_PROMPT,
-                    "stream":  False,
-                    "options": {"temperature": 0.1, "num_predict": 1024},
-                },
-            )
-            resp.raise_for_status()
-
-        return QueryResponse(
-            answer=resp.json()["response"].strip(),
-            sources=[
-                SourceNode(file=c["file"], page=c["page"], score=c["score"], text=c["text"])
-                for c in chunks
-            ],
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Query failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 def _retrieve_chunks(question: str) -> list:
-    """Shared retrieval logic for both query endpoints."""
+    """Shared retrieval + reranking logic for all query endpoints."""
     results = chroma_collection.query(
         query_embeddings=[embed_query(question)],
-        n_results=min(TOP_K, chroma_collection.count()),
+        n_results=min(RERANK_CANDIDATES, chroma_collection.count()),
         include=["documents", "metadatas", "distances"],
     )
-    return [
+    candidates = [
         {
             "text":  doc,
             "file":  meta.get("file_name", "Unknown"),
@@ -259,18 +176,25 @@ def _retrieve_chunks(question: str) -> list:
             results["distances"][0],
         )
     ]
+    return rerank(question, candidates, OLLAMA_HOST, RERANK_MODEL, TOP_K)
 
 
 def _build_prompt(question: str, chunks: list) -> str:
+    lang = detect(question)
     context = "\n\n---\n\n".join(
-        f"[Source: {c['file']}, Page {c['page']}]\n{c['text']}"
+        f"[file_name: {c['file']}, page_num {c['page']}]\n{c['text']}"
         for c in chunks
     )
+    logger.info(f"Chunks passed to LLM ({len(chunks)}):")
+    for i, c in enumerate(chunks):
+        logger.info(f"  [{i}] file={c['file']} page={c['page']} score={c['score']} text_preview={c['text'][:80]!r}")
     return (
         "Answer the following question solely based on the provided document excerpts. "
+        "Do NOT add any information that is not explicitly stated in the excerpts. "
         "Do not cite sources inline — they are shown separately to the user. "
         "Structure your answer clearly using bullet points or headings where it helps readability. "
         "If the answer is not in the documents, say so clearly.\n\n"
+        f"Always respond in the same language as the question (detected: {lang}).\n"
         f"Question: {question}\n\n"
         f"Context:\n{context}\n\n"
         "Answer:"
@@ -291,7 +215,7 @@ def query_stream(req: QueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
     sources = [
-        {"file": c["file"], "page": c["page"], "score": c["score"], "text": c["text"]}
+        {"file_name": c["file"], "page_num": c["page"], "score": c["score"], "text": c["text"]}
         for c in chunks
     ]
 
