@@ -6,9 +6,22 @@ import { api } from './api/client'
 import { Button } from './components/ui/button'
 import { MessageItem } from './components/ui/message-item'
 
+// Anzahl der gespeicherten Nachrichten (änderbar)
+const MAX_STORED_MESSAGES = 6
+const STORAGE_KEY = 'askuhh_chat_history'
+
 export default function App() {
   const { status, loading: statusLoading, error: statusError, refresh } = useStatus()
-  const [messages, setMessages] = useState([])
+  const [messages, setMessages] = useState(() => {
+    // Lade gespeicherte Nachrichten beim ersten Render
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY)
+      return stored ? JSON.parse(stored) : []
+    } catch (e) {
+      console.error('Failed to load chat history:', e)
+      return []
+    }
+  })
   const [input, setInput] = useState('')
   const [querying, setQuerying] = useState(false)
   const [queryError, setQueryError] = useState(null)
@@ -24,6 +37,22 @@ export default function App() {
     setQuerying(false)
     setAnimating(false)
   }
+
+  // Speichere die letzten N Nachrichten bei Änderungen
+  useEffect(() => {
+    if (messages.length === 0) return
+    try {
+      const toStore = messages.slice(-MAX_STORED_MESSAGES).map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+        sources: msg.sources || [],
+        // streaming-Flag nicht speichern
+      }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore))
+    } catch (e) {
+      console.error('Failed to save chat history:', e)
+    }
+  }, [messages])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
