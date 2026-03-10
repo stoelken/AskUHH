@@ -4,9 +4,10 @@ import { BookOpen, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from './button'
 import { cn } from '@/lib/utils'
 
-export function MessageItem({ role, content, sources }) {
+export function MessageItem({ role, content, sources, streaming = false }) {
   const [srcOpen, setSrcOpen] = useState(false)
   const isUser = role === 'user'
+  const showTyping = !isUser && streaming && !content?.trim()
 
   return (
     <div
@@ -15,9 +16,35 @@ export function MessageItem({ role, content, sources }) {
         isUser ? 'ml-auto items-end' : 'mr-auto items-start'
       )}
     >
-      <div className={cn('msg-bubble', isUser ? 'msg-bubble--user' : 'msg-bubble--ai')}>
+      <div
+        className={cn(
+          showTyping
+            ? 'px-3 py-2 rounded-full w-fit'
+            : 'px-4 py-3 rounded-lg max-w-full break-words overflow-hidden',
+          isUser ? 'border' : 'border'
+        )}
+        style={
+          isUser
+            ? {
+                background: 'var(--msg-user-bg)',
+                color: 'var(--msg-user-text)',
+                borderColor: 'var(--msg-user-border)',
+              }
+            : {
+                background: 'var(--msg-ai-bg)',
+                color: 'var(--msg-ai-text)',
+                borderColor: 'var(--msg-ai-border)',
+              }
+        }
+      >
         {isUser ? (
           <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{content}</p>
+        ) : showTyping ? (
+          <div className="typing" aria-label="Assistant is typing" role="status">
+            <span />
+            <span />
+            <span />
+          </div>
         ) : (
           <div className="prose prose-sm prose-invert max-w-none [&>*]:my-2 [&>p]:leading-relaxed">
             <ReactMarkdown>{content}</ReactMarkdown>

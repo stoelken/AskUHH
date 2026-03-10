@@ -134,11 +134,7 @@ export default function App() {
       <textarea
         ref={textareaRef}
         className={`chat-textarea${animating ? ' chat-textarea--vanishing' : ''}${!centered ? ' chat-textarea--followup' : ''}`}
-        placeholder={
-          centered
-            ? 'Ask about university regulations… (Enter to send, Shift+Enter for new line)'
-            : 'Follow-up question…'
-        }
+        placeholder={centered ? 'Ask about university regulations…' : 'Follow-up question…'}
         value={input}
         onChange={(e) => !animating && setInput(e.target.value)}
         onKeyDown={handleKey}
@@ -179,14 +175,6 @@ export default function App() {
       <Sidebar status={status} onStatusRefresh={refresh} />
 
       <main className="main" role="main" aria-label="Chat interface">
-        <header className="main-header">
-          <GraduationCap size={22} />
-          <div>
-            <h1>University Regulations Assistant</h1>
-            <p>Ask questions about rules, procedures, and documents</p>
-          </div>
-        </header>
-
         {statusError && (
           <div className="banner banner-err" style={{ margin: '16px 28px 0' }}>
             <AlertCircle size={15} />
