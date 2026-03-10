@@ -29,6 +29,9 @@ services:
       - CHUNK_SIZE=${CHUNK_SIZE:-512}
       - CHUNK_OVERLAP=${CHUNK_OVERLAP:-64}
       - TOP_K=${TOP_K:-4}
+      - RERANK_CANDIDATES=${RERANK_CANDIDATES:-15}
+      - RERANK_MODEL=${RERANK_MODEL:-dengcao/Qwen3-Reranker-0.6B:Q8_0}
+      - RERANK_WORKERS=${RERANK_WORKERS:-5}
       - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
