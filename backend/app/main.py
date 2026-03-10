@@ -19,7 +19,7 @@ from langdetect import detect
 from .config import (
     CHROMA_DIR, CHUNK_OVERLAP, CHUNK_SIZE, COLLECTION,
     DOCS_DIR, EMBED_MODEL, LLM_MODEL, OLLAMA_HOST, RERANK_CANDIDATES, RERANK_MODEL,
-    SYSTEM_PROMPT, TOP_K,
+    RERANK_WORKERS, SYSTEM_PROMPT, TOP_K,
 )
 from .embeddings import OllamaEmbeddingFunction, embed_query
 from .reranking import rerank
@@ -30,11 +30,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 chroma_collection = None
+http_client: httpx.Client = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global chroma_collection
+    global chroma_collection, http_client
+
+    http_client = httpx.Client(
+        timeout=httpx.Timeout(connect=10, read=180, write=30, pool=10),
+        limits=httpx.Limits(
+            max_connections=20,
+            max_keepalive_connections=10,
+            keepalive_expiry=120,
+        ),
+    )
 
     db = chromadb.PersistentClient(path=CHROMA_DIR)
     chroma_collection = db.get_or_create_collection(
@@ -44,9 +54,14 @@ async def lifespan(app: FastAPI):
     )
     logger.info(f"Embedding model: {EMBED_MODEL} via Ollama")
     logger.info(f"ChromaDB ready. Indexed chunks: {chroma_collection.count()}")
-    logger.info(f"Reranking: pointwise via {RERANK_MODEL}, candidates={RERANK_CANDIDATES}")
+    logger.info(
+        f"Reranking: pointwise via {RERANK_MODEL}, "
+        f"candidates={RERANK_CANDIDATES}, workers={RERANK_WORKERS}"
+    )
 
     yield
+
+    http_client.close()
     logger.info("Shutting down.")
 
 app = FastAPI(title="University RAG API", lifespan=lifespan)
@@ -157,7 +172,7 @@ def ingest():
 
 
 def _retrieve_chunks(question: str) -> list:
-    """Shared retrieval + reranking logic for all query endpoints."""
+    """Shared retrieval + parallel reranking logic for all query endpoints."""
     results = chroma_collection.query(
         query_embeddings=[embed_query(question)],
         n_results=min(RERANK_CANDIDATES, chroma_collection.count()),
@@ -176,7 +191,11 @@ def _retrieve_chunks(question: str) -> list:
             results["distances"][0],
         )
     ]
-    return rerank(question, candidates, OLLAMA_HOST, RERANK_MODEL, TOP_K)
+    return rerank(
+        question, candidates, OLLAMA_HOST, RERANK_MODEL, TOP_K,
+        client=http_client,
+        max_workers=RERANK_WORKERS,
+    )
 
 
 def _build_prompt(question: str, chunks: list) -> str:
@@ -225,28 +244,27 @@ def query_stream(req: QueryRequest):
 
         # 2) Stream LLM tokens from Ollama
         try:
-            with httpx.Client(timeout=180) as client:
-                with client.stream(
-                    "POST",
-                    f"{OLLAMA_HOST}/api/generate",
-                    json={
-                        "model":   LLM_MODEL,
-                        "prompt":  prompt,
-                        "system":  SYSTEM_PROMPT,
-                        "stream":  True,
-                        "options": {"temperature": 0.1, "num_predict": 1024},
-                    },
-                ) as resp:
-                    resp.raise_for_status()
-                    for line in resp.iter_lines():
-                        if not line:
-                            continue
-                        chunk_data = json.loads(line)
-                        token = chunk_data.get("response", "")
-                        if token:
-                            yield f"event: token\ndata: {json.dumps(token)}\n\n"
-                        if chunk_data.get("done", False):
-                            break
+            with http_client.stream(
+                "POST",
+                f"{OLLAMA_HOST}/api/generate",
+                json={
+                    "model":   LLM_MODEL,
+                    "prompt":  prompt,
+                    "system":  SYSTEM_PROMPT,
+                    "stream":  True,
+                    "options": {"temperature": 0.1, "num_predict": 1024},
+                },
+            ) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    chunk_data = json.loads(line)
+                    token = chunk_data.get("response", "")
+                    if token:
+                        yield f"event: token\ndata: {json.dumps(token)}\n\n"
+                    if chunk_data.get("done", False):
+                        break
         except Exception as e:
             logger.error(f"Streaming failed: {e}", exc_info=True)
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
