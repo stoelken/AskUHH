@@ -211,13 +211,23 @@ def _build_prompt(question: str, chunks: list) -> str:
         "Answer the following question solely based on the provided document excerpts. "
         "Do NOT add any information that is not explicitly stated in the excerpts. "
         "Do not cite sources inline — they are shown separately to the user. "
-        "Structure your answer clearly using bullet points or headings where it helps readability. "
+        "Structure your answer clearly using bold headings or bullet points where it helps readability.\n\n"
+        "IMPORTANT: Format your response like this:\n"
+        "**Section Title**\n"
+        "Content goes directly here on the next line.\n\n"
+        "**Next Section**\n"
+        "More content here.\n\n"
+        "- For section titles use markdown headings\n"
+        "- NO blank line between the title and content\n"
+        "- Add blank lines ONLY between the content of the previous section and the heading of the next section\n"
+        "- NO blank line at the beginning\n\n"
         "If the answer is not in the documents, say so clearly.\n\n"
         f"Always respond in the same language as the question (detected: {lang}).\n"
         f"Question: {question}\n\n"
         f"Context:\n{context}\n\n"
         "Answer:"
     )
+
 
 
 @app.post("/query/stream")
