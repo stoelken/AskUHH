@@ -5,22 +5,11 @@ import { Button } from './button'
 import { PdfModal, readableTitle } from './PdfModal'
 import { cn } from '@/lib/utils'
 
-function deduplicateSources(sources) {
-  const map = {}
-  for (const src of sources) {
-    const key = src.file_name
-    if (!map[key] || src.score > map[key].score) {
-      map[key] = src
-    }
-  }
-  return Object.values(map).sort((a, b) => b.score - a.score)
-}
-
 export function MessageItem({ role, content, sources, streaming = false }) {
   const [srcOpen, setSrcOpen] = useState(false)
   const isUser = role === 'user'
   const showTyping = !isUser && streaming && !content?.trim()
-  const uniquePdfs = sources?.length > 0 ? deduplicateSources(sources).slice(0, 3) : []
+  const pdfs = sources ?? []
 
   return (
     <div
@@ -65,7 +54,7 @@ export function MessageItem({ role, content, sources, streaming = false }) {
         )}
       </div>
 
-      {!isUser && !streaming && uniquePdfs.length > 0 && (
+      {!isUser && !streaming && pdfs.length > 0 && (
         <div className="flex flex-col gap-2 w-full">
           <Button
             variant="ghost"
@@ -75,29 +64,26 @@ export function MessageItem({ role, content, sources, streaming = false }) {
           >
             <BookOpen size={12} />
             <span>
-              {uniquePdfs.length} Dokument{uniquePdfs.length > 1 ? 'e' : ''}
+              {pdfs.length} Dokument{pdfs.length > 1 ? 'e' : ''}
             </span>
             {srcOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </Button>
 
           {srcOpen && (
             <div className="flex flex-col gap-2 pl-4 border-l-2 border-accent/30">
-              {uniquePdfs.map((src, index) => (
+              {pdfs.map((filename) => (
                 <PdfModal
-                  key={src.file_name}
-                  filename={src.file_name}
+                  key={filename}
+                  filename={filename}
                   trigger={
                     <button className="flex items-center gap-3 bg-surface2 border border-border rounded-md p-3 text-left w-full hover:border-accent/50 hover:bg-surface2/80 transition-colors cursor-pointer">
                       <FileText size={16} className="text-accent shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-accent truncate">
-                          {readableTitle(src.file_name)}
+                          {readableTitle(filename)}
                         </p>
                         <p className="text-xs text-text-muted mt-0.5">PDF öffnen</p>
                       </div>
-                      <span className="shrink-0 text-[10px] font-mono bg-accent/10 text-accent border border-accent/20 rounded px-1.5 py-0.5">
-                        #{index + 1}
-                      </span>
                     </button>
                   }
                 />

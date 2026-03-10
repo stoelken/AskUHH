@@ -2,9 +2,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from collections import defaultdict
-from itertools import zip_longest
-from typing import List, Optional
+from typing import List
 
 import chromadb
 import httpx
@@ -228,14 +226,11 @@ def query_stream(req: QueryRequest):
         logger.error(f"Retrieval failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-    sources = [
-        {"file_name": c["file"], "page_num": c["page"], "score": c["score"], "text": c["text"]}
-        for c in chunks
-    ]
+    pdf_names = list(dict.fromkeys(c["file"] for c in chunks))[:3]
 
     def event_generator():
-        # 1) Send sources as the first event
-        yield f"event: sources\ndata: {json.dumps(sources)}\n\n"
+        # 1) Send deduplicated PDF filenames as the first event
+        yield f"event: sources\ndata: {json.dumps(pdf_names)}\n\n"
 
         # 2) Stream LLM tokens from Ollama
         try:
