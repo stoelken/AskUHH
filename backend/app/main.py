@@ -10,7 +10,7 @@ import chromadb
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
@@ -80,6 +80,14 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/pdf/{filename}")
+def serve_pdf(filename: str):
+    pdf_path = Path(DOCS_DIR) / filename
+    if not pdf_path.exists() or pdf_path.suffix.lower() != ".pdf":
+        raise HTTPException(status_code=404, detail="PDF not found")
+    return FileResponse(pdf_path, media_type="application/pdf")
+
+
 @app.get("/status", response_model=StatusResponse)
 def status():
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
@@ -99,6 +107,12 @@ def ingest():
 
     if not pdf_files:
         raise HTTPException(status_code=400, detail=f"No PDF files found in {DOCS_DIR}.")
+
+    # Clearing
+    existing_ids = chroma_collection.get()["ids"]
+    if existing_ids:
+        chroma_collection.delete(ids=existing_ids)
+        logger.info(f"Cleared {len(existing_ids)} existing chunks before re-indexing.")
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
@@ -168,7 +182,7 @@ def _retrieve_chunks(question: str) -> list:
             "text":  doc,
             "file":  meta.get("file_name", "Unknown"),
             "page":  int(meta.get("page", 0)),
-            "score": round(1.0 - dist, 4),
+            "score": round(max(0.0, 1.0 - dist), 4),
         }
         for doc, meta, dist in zip(
             results["documents"][0],
