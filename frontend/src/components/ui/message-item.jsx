@@ -9,14 +9,13 @@ export function MessageItem({ role, content, sources }) {
   const isUser = role === 'user'
 
   return (
-    <div className={cn(
-      'flex flex-col gap-2 max-w-[680px] w-full px-4',
-      isUser ? 'ml-auto items-end' : 'mr-auto items-start'
-    )}>
-      <div className={cn(
-        'msg-bubble',
-        isUser ? 'msg-bubble--user' : 'msg-bubble--ai'
-      )}>
+    <div
+      className={cn(
+        'flex flex-col gap-2 max-w-[680px] w-full px-4',
+        isUser ? 'ml-auto items-end' : 'mr-auto items-start'
+      )}
+    >
+      <div className={cn('msg-bubble', isUser ? 'msg-bubble--user' : 'msg-bubble--ai')}>
         {isUser ? (
           <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{content}</p>
         ) : (
@@ -31,11 +30,13 @@ export function MessageItem({ role, content, sources }) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setSrcOpen(v => !v)}
+            onClick={() => setSrcOpen((v) => !v)}
             className="self-start gap-2 h-7 px-2 text-xs"
           >
             <BookOpen size={12} />
-            <span>{sources.length} source{sources.length > 1 ? 's' : ''}</span>
+            <span>
+              {sources.length} source{sources.length > 1 ? 's' : ''}
+            </span>
             {srcOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </Button>
 
@@ -44,11 +45,16 @@ export function MessageItem({ role, content, sources }) {
               {sources.map((src, i) => (
                 <div key={i} className="bg-surface2 border border-border rounded-md p-3">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-accent truncate">{src.file}</span>
-                    <span className="text-xs text-text-muted ml-2">{(src.score * 100).toFixed(0)}%</span>
+                    <span className="text-xs font-medium text-accent truncate">
+                      {src.file_name}
+                    </span>
+                    <span className="text-xs text-text-muted ml-2">
+                      {(src.score * 100).toFixed(0)}%
+                    </span>
                   </div>
                   <p className="text-xs text-text-muted leading-relaxed">
-                    {src.text.slice(0, 300)}{src.text.length > 300 ? '…' : ''}
+                    {src.text.slice(0, 300)}
+                    {src.text.length > 300 ? '…' : ''}
                   </p>
                 </div>
               ))}

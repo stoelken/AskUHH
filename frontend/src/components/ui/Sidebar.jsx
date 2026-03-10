@@ -53,21 +53,19 @@ export default function Sidebar({ status, onStatusRefresh }) {
       </button>
 
       {ingestMsg && (
-        <div className={`ingest-msg ${ingestMsg.ok ? 'ok' : 'err'}`}>
-          {ingestMsg.text}
-        </div>
+        <div className={`ingest-msg ${ingestMsg.ok ? 'ok' : 'err'}`}>{ingestMsg.text}</div>
       )}
 
       {/* Document list */}
       {status?.documents?.length > 0 && (
         <div className="doc-list">
-          <button className="doc-list-toggle" onClick={() => setDocsOpen(v => !v)}>
+          <button className="doc-list-toggle" onClick={() => setDocsOpen((v) => !v)}>
             {docsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <span>Loaded documents</span>
           </button>
           {docsOpen && (
             <ul>
-              {status.documents.map(d => (
+              {status.documents.map((d) => (
                 <li key={d}>
                   <FileText size={11} />
                   <span>{d}</span>
@@ -94,8 +92,12 @@ export default function Sidebar({ status, onStatusRefresh }) {
       <div className="howto">
         <p className="howto-title">Adding documents</p>
         <ol>
-          <li>Copy PDFs into <code>backend/data/docs/</code></li>
-          <li>Click <em>Index / Re-index</em></li>
+          <li>
+            Copy PDFs into <code>backend/data/docs/</code>
+          </li>
+          <li>
+            Click <em>Index / Re-index</em>
+          </li>
           <li>Start asking questions</li>
         </ol>
       </div>

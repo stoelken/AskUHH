@@ -46,8 +46,8 @@ export default function App() {
       setInput('')
       setQueryError(null)
 
-      setMessages(m => [...m, { role: 'user', content: q }])
-      setMessages(m => [...m, { role: 'assistant', content: '', sources: [], streaming: true }])
+      setMessages((m) => [...m, { role: 'user', content: q }])
+      setMessages((m) => [...m, { role: 'assistant', content: '', sources: [], streaming: true }])
       setQuerying(true)
 
       const controller = new AbortController()
@@ -58,7 +58,7 @@ export default function App() {
           q,
           {
             onSources(sources) {
-              setMessages(m => {
+              setMessages((m) => {
                 const updated = [...m]
                 const last = updated[updated.length - 1]
                 if (last?.role === 'assistant') {
@@ -68,7 +68,7 @@ export default function App() {
               })
             },
             onToken(token) {
-              setMessages(m => {
+              setMessages((m) => {
                 const updated = [...m]
                 const last = updated[updated.length - 1]
                 if (last?.role === 'assistant') {
@@ -78,7 +78,7 @@ export default function App() {
               })
             },
             onDone() {
-              setMessages(m => {
+              setMessages((m) => {
                 const updated = [...m]
                 const last = updated[updated.length - 1]
                 if (last?.role === 'assistant') {
@@ -89,7 +89,7 @@ export default function App() {
             },
             onError(err) {
               setQueryError(err.message)
-              setMessages(m => {
+              setMessages((m) => {
                 const updated = [...m]
                 const last = updated[updated.length - 1]
                 if (last?.role === 'assistant') {
@@ -99,13 +99,13 @@ export default function App() {
               })
             },
           },
-          controller.signal,
+          controller.signal
         )
       } catch (e) {
         if (e.name !== 'AbortError') {
           setQueryError(e.message)
         }
-        setMessages(m => {
+        setMessages((m) => {
           const updated = [...m]
           const last = updated[updated.length - 1]
           if (last?.role === 'assistant') {
@@ -134,9 +134,13 @@ export default function App() {
       <textarea
         ref={textareaRef}
         className={`chat-textarea${animating ? ' chat-textarea--vanishing' : ''}${!centered ? ' chat-textarea--followup' : ''}`}
-        placeholder={centered ? 'Ask about university regulations… (Enter to send, Shift+Enter for new line)' : 'Follow-up question…'}
+        placeholder={
+          centered
+            ? 'Ask about university regulations… (Enter to send, Shift+Enter for new line)'
+            : 'Follow-up question…'
+        }
         value={input}
-        onChange={e => !animating && setInput(e.target.value)}
+        onChange={(e) => !animating && setInput(e.target.value)}
         onKeyDown={handleKey}
         disabled={notIndexed}
         rows={1}
@@ -191,7 +195,8 @@ export default function App() {
         )}
         {notIndexed && !statusError && (
           <div className="banner banner-info" style={{ margin: '16px 28px 0' }}>
-            No documents indexed yet. Add PDFs to <code>backend/data/docs/</code> and click <strong>Index / Re-index</strong> in the sidebar.
+            No documents indexed yet. Add PDFs to <code>backend/data/docs/</code> and click{' '}
+            <strong>Index / Re-index</strong> in the sidebar.
           </div>
         )}
 
@@ -217,9 +222,7 @@ export default function App() {
               <div ref={bottomRef} aria-hidden="true" />
             </div>
 
-            <div className="input-footer">
-              {inputBox(false)}
-            </div>
+            <div className="input-footer">{inputBox(false)}</div>
           </div>
         )}
       </main>
