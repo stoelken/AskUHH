@@ -9,7 +9,15 @@ export function MessageItem({ role, content, sources, streaming = false }) {
   const [srcOpen, setSrcOpen] = useState(false)
   const isUser = role === 'user'
   const showTyping = !isUser && streaming && !content?.trim()
-  const pdfs = sources ?? []
+
+  const pdfs =
+    sources?.map((item) => {
+      if (typeof item === 'string') {
+        return { filename: item, chunks: [] }
+      } else {
+        return item
+      }
+    }) ?? []
 
   return (
     <div
@@ -71,16 +79,17 @@ export function MessageItem({ role, content, sources, streaming = false }) {
 
           {srcOpen && (
             <div className="flex flex-col gap-2 pl-4 border-l-2 border-accent/30">
-              {pdfs.map((filename) => (
+              {pdfs.map((item) => (
                 <PdfModal
-                  key={filename}
-                  filename={filename}
+                  key={item.filename}
+                  filename={item.filename}
+                  chunks={item.chunks}
                   trigger={
                     <button className="flex items-center gap-3 bg-surface2 border border-border rounded-md p-3 text-left w-full hover:border-accent/50 hover:bg-surface2/80 transition-colors cursor-pointer">
                       <FileText size={16} className="text-accent shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-accent truncate">
-                          {readableTitle(filename)}
+                          {readableTitle(item.filename)}
                         </p>
                         <p className="text-xs text-text-muted mt-0.5">PDF öffnen</p>
                       </div>
