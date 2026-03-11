@@ -16,10 +16,11 @@ from langdetect import detect
 
 from .config import (
     CHROMA_DIR, CHUNK_OVERLAP, CHUNK_SIZE, COLLECTION,
-    DOCS_DIR, EMBED_MODEL, LLM_MODEL, OLLAMA_HOST, RERANK_CANDIDATES, RERANK_MODEL,
-    RERANK_WORKERS, SYSTEM_PROMPT, TOP_K,
+    DOCS_DIR, EMBED_MODEL, LLM_MODEL, OLLAMA_HOST, RERANK_CANDIDATES,
+    RERANK_MODEL, SYSTEM_PROMPT, TOP_K,
 )
 from .embeddings import OllamaEmbeddingFunction, embed_query
+from . import embeddings
 from .reranking import rerank
 
 logging.basicConfig(
@@ -36,13 +37,16 @@ async def lifespan(app: FastAPI):
     global chroma_collection, http_client
 
     http_client = httpx.Client(
-        timeout=httpx.Timeout(connect=10, read=180, write=30, pool=10),
+        timeout=httpx.Timeout(connect=10, read=180, write=30, pool=180),
         limits=httpx.Limits(
             max_connections=20,
             max_keepalive_connections=10,
             keepalive_expiry=120,
         ),
     )
+
+    # Share the client with the embeddings module
+    embeddings.init(http_client)
 
     db = chromadb.PersistentClient(path=CHROMA_DIR)
     chroma_collection = db.get_or_create_collection(
@@ -54,7 +58,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"ChromaDB ready. Indexed chunks: {chroma_collection.count()}")
     logger.info(
         f"Reranking: pointwise via {RERANK_MODEL}, "
-        f"candidates={RERANK_CANDIDATES}, workers={RERANK_WORKERS}"
+        f"candidates={RERANK_CANDIDATES}"
     )
 
     yield
@@ -184,7 +188,7 @@ def ingest():
 
 
 def _retrieve_chunks(question: str) -> list:
-    """Shared retrieval + parallel reranking logic for all query endpoints."""
+    """Retrieval + sequential reranking."""
     results = chroma_collection.query(
         query_embeddings=[embed_query(question)],
         n_results=min(RERANK_CANDIDATES, chroma_collection.count()),
@@ -206,7 +210,6 @@ def _retrieve_chunks(question: str) -> list:
     return rerank(
         question, candidates, OLLAMA_HOST, RERANK_MODEL, TOP_K,
         client=http_client,
-        max_workers=RERANK_WORKERS,
     )
 
 

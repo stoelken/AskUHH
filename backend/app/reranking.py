@@ -1,5 +1,4 @@
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
 import httpx
@@ -13,18 +12,14 @@ _RERANK_SYSTEM = (
 _INSTRUCT = "Retrieve relevant passages that answer the question"
 
 
-def _score(
+def _score_one(
     question: str,
     doc_text: str,
     ollama_host: str,
     rerank_model: str,
     client: httpx.Client,
-) -> float:
-    """Score a single (question, document) pair using Qwen3-Reranker.
-
-    Returns 1.0 for 'yes' and 0.0 for 'no'.
-    Uses the *shared* httpx.Client for connection pooling.
-    """
+) -> bool:
+    """Score a single (question, document) pair. Returns True for relevant."""
     user_msg = (
         f"<Instruct>: {_INSTRUCT}\n"
         f"<Query>: {question}\n"
@@ -46,25 +41,7 @@ def _score(
     resp.raise_for_status()
 
     answer = resp.json()["message"]["content"].strip().lower()
-    relevant = "yes" in answer and "no" not in answer.split("yes")[0]
-    return 1.0 if relevant else 0.0
-
-
-def _score_candidate(
-    idx: int,
-    candidate: dict,
-    question: str,
-    ollama_host: str,
-    rerank_model: str,
-    client: httpx.Client,
-) -> tuple:
-    """Wrapper for parallel execution — scores one candidate, returns (index, is_relevant)."""
-    try:
-        score = _score(question, candidate["text"][:2000], ollama_host, rerank_model, client)
-        return idx, score == 1.0
-    except Exception as e:
-        logger.warning(f"Rerank failed for candidate {idx}: {e}")
-        return idx, False
+    return "yes" in answer and "no" not in answer.split("yes")[0]
 
 
 def rerank(
@@ -74,29 +51,24 @@ def rerank(
     rerank_model: str,
     top_k: int,
     client: httpx.Client,
-    max_workers: int = 5,
 ) -> List[dict]:
-    """Pointwise reranking with **parallel** scoring.
+    """Pointwise reranking – simple sequential loop.
 
-    Scores all candidates concurrently via a ThreadPoolExecutor,
-    then sorts and returns up to top_k results.
-    'yes' chunks are preferred; 'no' chunks serve as fallback.
+    Scores each candidate one by one, then returns up to top_k results
+    preferring 'yes' chunks sorted by embedding score.
     """
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {
-            pool.submit(
-                _score_candidate, i, c, question, ollama_host, rerank_model, client,
-            ): i
-            for i, c in enumerate(candidates)
-        }
+    for i, c in enumerate(candidates):
+        try:
+            relevant = _score_one(
+                question, c["text"][:2000], ollama_host, rerank_model, client,
+            )
+        except Exception as e:
+            logger.warning(f"Rerank failed for candidate {i}: {e}")
+            relevant = False
 
-        for future in as_completed(futures):
-            idx, relevant = future.result()
-            candidates[idx]["_relevant"] = relevant
-
-    for c in candidates:
+        c["_relevant"] = relevant
         logger.info(
-            f"Rerank: {'YES' if c['_relevant'] else 'NO '} | "
+            f"Rerank: {'YES' if relevant else 'NO '} | "
             f"{c['file']} p{c['page']} | {c['text'][:60]!r}"
         )
 
