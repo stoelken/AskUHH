@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List
@@ -267,7 +268,7 @@ def _build_prompt(question: str, chunks: list) -> str:
 
 @app.post("/query/stream")
 def query_stream(req: QueryRequest):
-    """SSE streaming endpoint: sends sources first, then LLM tokens, then [DONE]."""
+    """SSE streaming endpoint: sends sources first, then LLM tokens, then done with logprobs."""
     if chroma_collection.count() == 0:
         raise HTTPException(status_code=400, detail="No documents indexed yet. Call /ingest first.")
 
@@ -301,16 +302,19 @@ def query_stream(req: QueryRequest):
         # 1) Send enriched sources with chunk data as the first event
         yield f"event: sources\ndata: {json.dumps(sources_data)}\n\n"
 
-        # 2) Stream LLM tokens from Ollama
+        # 2) Stream LLM tokens from Ollama, collecting logprobs
+        token_probs = []
         try:
             with http_client.stream(
                 "POST",
                 f"{OLLAMA_HOST}/api/generate",
                 json={
-                    "model":   LLM_MODEL,
-                    "prompt":  prompt,
-                    "system":  SYSTEM_PROMPT,
-                    "stream":  True,
+                    "model":        LLM_MODEL,
+                    "prompt":       prompt,
+                    "system":       SYSTEM_PROMPT,
+                    "stream":       True,
+                    "logprobs":     True,
+                    "top_logprobs": 20,
                     "options": {"temperature": 0.1, "num_predict": 1024},
                 },
             ) as resp:
@@ -322,14 +326,33 @@ def query_stream(req: QueryRequest):
                     token = chunk_data.get("response", "")
                     if token:
                         yield f"event: token\ndata: {json.dumps(token)}\n\n"
+
+                    for token_data in chunk_data.get("logprobs", []):
+                        top = token_data.get("top_logprobs", [])
+                        if not top:
+                            continue
+                        chosen = top[0]
+                        prob = math.exp(chosen["logprob"])
+                        token_probs.append({
+                            "token":        chosen["token"],
+                            "probability":  round(prob * 100, 1),
+                            "alternatives": [
+                                {
+                                    "token":       alt["token"],
+                                    "probability": round(math.exp(alt["logprob"]) * 100, 1),
+                                }
+                                for alt in top[1:]
+                            ],
+                        })
+
                     if chunk_data.get("done", False):
                         break
         except Exception as e:
             logger.error(f"Streaming failed: {e}", exc_info=True)
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
 
-        # 3) Signal completion
-        yield "event: done\ndata: {}\n\n"
+        # 3) Signal completion with logprobs
+        yield f"event: done\ndata: {json.dumps({'logprobs': token_probs})}\n\n"
 
     return StreamingResponse(
         event_generator(),
