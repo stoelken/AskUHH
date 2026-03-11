@@ -217,7 +217,6 @@ export default function App() {
         type="button"
         className="sidebar-toggle-btn"
         onClick={() => setSidebarOpen((v) => !v)}
-        aria-label={sidebarOpen ? 'Dev sidebar schliessen' : 'Dev sidebar oeffnen'}
       >
         {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
       </button>
