@@ -8,7 +8,7 @@ import chromadb
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
@@ -88,6 +88,10 @@ class IngestResponse(BaseModel):
     pdf_count:   int
     chunk_count: int
 
+class HighlightRequest(BaseModel):
+    filename: str
+    chunks: List[dict]  
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -99,6 +103,22 @@ def serve_pdf(filename: str):
     if not pdf_path.exists() or pdf_path.suffix.lower() != ".pdf":
         raise HTTPException(status_code=404, detail="PDF not found")
     return FileResponse(pdf_path, media_type="application/pdf")
+
+
+@app.post("/pdf/highlight")
+def highlight_pdf(req: HighlightRequest):
+    """Highlight specific chunks in a PDF and return modified PDF with annotations."""
+    pdf_path = Path(DOCS_DIR) / req.filename
+    if not pdf_path.exists() or pdf_path.suffix.lower() != ".pdf":
+        raise HTTPException(status_code=404, detail="PDF not found")
+
+    try:
+        from .pdf_highlighter import highlight_chunks_in_pdf
+        highlighted_bytes = highlight_chunks_in_pdf(str(pdf_path), req.chunks)
+        return Response(content=highlighted_bytes, media_type="application/pdf")
+    except Exception as e:
+        logger.error(f"PDF highlighting failed for {req.filename}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/status", response_model=StatusResponse)
@@ -255,11 +275,28 @@ def query_stream(req: QueryRequest):
         logger.error(f"Retrieval failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-    pdf_names = list(dict.fromkeys(c["file"] for c in chunks))[:3]
+    # Build sources data: group chunks by filename, keep top 3 per file
+    sources_map = {}
+    for c in chunks:
+        if c["file"] not in sources_map:
+            sources_map[c["file"]] = []
+        if len(sources_map[c["file"]]) < 3:
+            sources_map[c["file"]].append({
+                "page": c["page"],
+                "text": c["text"],
+                "score": c["score"],
+            })
+
+    # Limit to top 3 files (preserving chunk order)
+    pdf_names = list(sources_map.keys())[:3]
+    sources_data = [
+        {"filename": name, "chunks": sources_map[name]}
+        for name in pdf_names
+    ]
 
     def event_generator():
-        # 1) Send deduplicated PDF filenames as the first event
-        yield f"event: sources\ndata: {json.dumps(pdf_names)}\n\n"
+        # 1) Send enriched sources with chunk data as the first event
+        yield f"event: sources\ndata: {json.dumps(sources_data)}\n\n"
 
         # 2) Stream LLM tokens from Ollama
         try:
