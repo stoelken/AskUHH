@@ -21,8 +21,8 @@
   --surface: #22252b;
   --surface2: #2a2e36;
   --border: #363b44;
-  --accent: #c8a96e;
-  --accent-dim: #7a6440;
+  --accent: #d5d9e0;
+  --accent-dim: #9aa3af;
   --text: #ede9e1; /* 14.2:1 gegen --bg ✓ */
   --text-muted: #9ba0aa; /* 6.5:1 gegen --bg ✓  (war #7a7d85 = 4.3:1 ✗) */
   --text-faint: #6e7480; /* 4.0:1 gegen --bg ✓  (war #52565f = 2.5:1 ✗) */
@@ -63,19 +63,65 @@ body {
   display: flex;
   height: 100vh;
   overflow: hidden;
+  position: relative;
+}
+
+.sidebar-toggle-btn {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  z-index: 7;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(34, 37, 43, 0.9);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.sidebar-toggle-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: rgba(213, 217, 224, 0.12);
 }
 
 /* ── Sidebar ────────────────────────────────────────────────────────────── */
 .sidebar {
-  width: var(--sidebar-w);
-  flex-shrink: 0;
+  width: 0;
+  min-width: 0;
+  flex: 0 0 0;
+  z-index: 2;
+  transition:
+    width 0.22s ease,
+    padding 0.22s ease,
+    opacity 0.18s ease;
   background: var(--surface);
-  border-right: 1px solid var(--border);
+  border-right: 0 solid transparent;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 20px 16px;
+  padding: 56px 0 20px;
   overflow-y: auto;
+  overflow-x: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidebar--open {
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+  padding: 56px 16px 20px;
+  border-right: 1px solid var(--border);
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .sidebar-header {
@@ -157,7 +203,7 @@ body {
 }
 
 .ingest-btn:hover:not(:disabled) {
-  background: rgba(200, 169, 110, 0.08);
+  background: rgba(213, 217, 224, 0.12);
   border-color: var(--accent);
 }
 
@@ -306,6 +352,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
 }
 
 .main-header {
@@ -610,7 +657,7 @@ body {
 
 .input-row:focus-within {
   border-color: var(--accent-dim);
-  box-shadow: 0 0 0 3px rgba(200, 169, 110, 0.12);
+  box-shadow: 0 0 0 3px rgba(213, 217, 224, 0.16);
 }
 
 /* Centered variant (initial screen) */

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, StopCircle, AlertCircle, Trash2 } from 'lucide-react'
+import { Send, StopCircle, AlertCircle, Trash2, Menu, X } from 'lucide-react'
 import Sidebar from './components/ui/Sidebar'
 import { useStatus } from './hooks/useStatus'
 import { api } from './api/client'
@@ -26,6 +26,7 @@ export default function App() {
   const [querying, setQuerying] = useState(false)
   const [queryError, setQueryError] = useState(null)
   const [animating, setAnimating] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const bottomRef = useRef(null)
   const textareaRef = useRef(null)
   const abortRef = useRef(null)
@@ -212,7 +213,15 @@ export default function App() {
 
   return (
     <div className="layout">
-      <Sidebar status={status} onStatusRefresh={refresh} />
+      <button
+        type="button"
+        className="sidebar-toggle-btn"
+        onClick={() => setSidebarOpen((v) => !v)}
+      >
+        {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
+      </button>
+
+      <Sidebar status={status} onStatusRefresh={refresh} isOpen={sidebarOpen} />
 
       <main className="main" role="main" aria-label="Chat interface">
         {statusError && (
@@ -240,7 +249,6 @@ export default function App() {
               className="chat-clear-btn"
               onClick={handleClearRecent}
               disabled={querying || messages.length === 0}
-              title="Letzte 6 Nachrichten loeschen"
               aria-label="Letzte 6 Nachrichten loeschen"
             >
               <Trash2 size={14} />
