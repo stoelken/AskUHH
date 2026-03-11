@@ -72,7 +72,7 @@ export function MessageItem({ role, content, sources, streaming = false }) {
           >
             <BookOpen size={12} />
             <span>
-              {pdfs.length} Dokument{pdfs.length > 1 ? 'e' : ''}
+              {pdfs.length} Document{pdfs.length > 1 ? 's' : ''}
             </span>
             {srcOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </Button>
@@ -85,13 +85,15 @@ export function MessageItem({ role, content, sources, streaming = false }) {
                   filename={item.filename}
                   chunks={item.chunks}
                   trigger={
-                    <button className="flex items-center gap-3 bg-surface2 border border-border rounded-md p-3 text-left w-full hover:border-accent/50 hover:bg-surface2/80 transition-colors cursor-pointer">
+                    <button className="group flex items-center gap-3 bg-surface2 border border-border rounded-md p-3 text-left w-full hover:border-accent/60 hover:bg-surface2/80 transition-colors cursor-pointer">
                       <FileText size={16} className="text-accent shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-accent truncate">
                           {readableTitle(item.filename)}
                         </p>
-                        <p className="text-xs text-text-muted mt-0.5">PDF öffnen</p>
+                        <span className="inline-flex items-center mt-1 rounded px-2 py-0.5 text-[11px] font-medium text-accent border border-accent/45 bg-accent/12 group-hover:bg-accent/20 group-hover:border-accent/65 transition-colors">
+                          Open PDF
+                        </span>
                       </div>
                     </button>
                   }

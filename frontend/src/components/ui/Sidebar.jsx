@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { FileText, RefreshCw, Database, Cpu, Server, ChevronDown, ChevronRight } from 'lucide-react'
+import { FileText, RefreshCw, Database, ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '../../api/client'
 
-export default function Sidebar({ status, onStatusRefresh }) {
+export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
   const [ingesting, setIngesting] = useState(false)
   const [ingestMsg, setIngestMsg] = useState(null)
   const [docsOpen, setDocsOpen] = useState(true)
@@ -22,11 +22,7 @@ export default function Sidebar({ status, onStatusRefresh }) {
   }
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar-header">
-        <span className="sidebar-logo">⬡</span>
-        <span className="sidebar-title">RAG Control</span>
-      </div>
+    <aside className={`sidebar ${isOpen ? 'sidebar--open' : ''}`}>
 
       {/* Stats */}
       <div className="stat-grid">
@@ -76,31 +72,6 @@ export default function Sidebar({ status, onStatusRefresh }) {
         </div>
       )}
 
-      {/* Config info */}
-      <div className="config-info">
-        <div className="config-row">
-          <Cpu size={11} />
-          <span>{status?.llm_model ?? '—'}</span>
-        </div>
-        <div className="config-row">
-          <Server size={11} />
-          <span className="truncate">{status?.ollama_host ?? '—'}</span>
-        </div>
-      </div>
-
-      {/* How-to */}
-      <div className="howto">
-        <p className="howto-title">Adding documents</p>
-        <ol>
-          <li>
-            Copy PDFs into <code>backend/data/docs/</code>
-          </li>
-          <li>
-            Click <em>Index / Re-index</em>
-          </li>
-          <li>Start asking questions</li>
-        </ol>
-      </div>
     </aside>
   )
 }
