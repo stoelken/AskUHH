@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, StopCircle, GraduationCap, AlertCircle } from 'lucide-react'
+import { Send, StopCircle, AlertCircle, Trash2 } from 'lucide-react'
 import Sidebar from './components/ui/Sidebar'
 import { useStatus } from './hooks/useStatus'
 import { api } from './api/client'
@@ -38,9 +38,20 @@ export default function App() {
     setAnimating(false)
   }
 
+  function handleClearRecent() {
+    if (querying) {
+      handleAbort()
+    }
+    setQueryError(null)
+    setMessages((m) => m.slice(0, Math.max(0, m.length - 6)))
+  }
+
   // Speichere die letzten N Nachrichten bei Änderungen
   useEffect(() => {
-    if (messages.length === 0) return
+    if (messages.length === 0) {
+      localStorage.removeItem(STORAGE_KEY)
+      return
+    }
     try {
       const toStore = messages.slice(-MAX_STORED_MESSAGES).map((msg) => ({
         role: msg.role,
@@ -224,6 +235,17 @@ export default function App() {
           </div>
         ) : (
           <div className="chat-wrapper">
+            <button
+              type="button"
+              className="chat-clear-btn"
+              onClick={handleClearRecent}
+              disabled={querying || messages.length === 0}
+              title="Letzte 6 Nachrichten loeschen"
+              aria-label="Letzte 6 Nachrichten loeschen"
+            >
+              <Trash2 size={14} />
+            </button>
+
             <div className="chat-area" role="log" aria-live="polite" aria-label="Chat messages">
               {messages.map((msg, i) => (
                 <MessageItem key={i} {...msg} />
