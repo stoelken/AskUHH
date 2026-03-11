@@ -118,12 +118,16 @@ export default function App() {
                 return updated
               })
             },
-            onDone() {
+            onDone(data) {
               setMessages((m) => {
                 const updated = [...m]
                 const last = updated[updated.length - 1]
                 if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = { ...last, streaming: false }
+                  updated[updated.length - 1] = {
+                    ...last,
+                    streaming: false,
+                    logprobs: data?.logprobs ?? [],
+                  }
                 }
                 return updated
               })
