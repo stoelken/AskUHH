@@ -76,7 +76,7 @@ async function queryStream(question, { onSources, onToken, onDone, onError }, si
             onToken?.(parsed)
             break
           case 'done':
-            onDone?.()
+            onDone?.(parsed)
             break
           case 'error':
             onError?.(new Error(parsed))
