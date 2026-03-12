@@ -20,9 +20,10 @@ async function request(path, options = {}) {
  * @param {function} callbacks.onToken    - called per token string
  * @param {function} callbacks.onDone     - called when stream finishes
  * @param {function} callbacks.onError    - called on error
+ * @param {function} callbacks.onFollowups - called with array of follow-up question strings
  * @param {AbortSignal} [signal]          - optional abort signal
  */
-async function queryStream(question, { onSources, onToken, onDone, onError }, signal) {
+async function queryStream(question, { onSources, onToken, onDone, onError, onFollowups }, signal) {
   const res = await fetch(`${BASE}/query/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -77,6 +78,9 @@ async function queryStream(question, { onSources, onToken, onDone, onError }, si
             break
           case 'done':
             onDone?.(parsed)
+            break
+          case 'followups':
+            onFollowups?.(parsed)
             break
           case 'error':
             onError?.(new Error(parsed))

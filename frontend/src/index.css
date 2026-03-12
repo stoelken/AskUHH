@@ -755,6 +755,58 @@ body {
   flex-shrink: 0;
 }
 
+/* ── Follow-up chips ─────────────────────────────────────────────────── */
+.followup-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.followup-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.followup-chips-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.followup-chip {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+  text-align: left;
+  line-height: 1.4;
+}
+
+.followup-chip:hover {
+  background: rgba(213, 217, 224, 0.1);
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.followup-chip:active {
+  transform: scale(0.97);
+}
+
 @layer base {
   :root {
     --background: oklch(1 0 0);

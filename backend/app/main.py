@@ -95,7 +95,7 @@ class IngestResponse(BaseModel):
 
 class HighlightRequest(BaseModel):
     filename: str
-    chunks: List[dict]  
+    chunks: List[dict]
 
 @app.get("/health")
 def health():
@@ -425,7 +425,38 @@ def query_stream(req: QueryRequest):
             logger.error(f"Streaming failed: {e}", exc_info=True)
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
 
-        # 3) Signal completion with aggregated confidence metrics
+        # 3) Generate follow-up questions
+        try:
+            followup_prompt = (
+                f"Basierend auf der folgenden Frage und Antwort, generiere genau 3 kurze, "
+                f"relevante Folgefragen, die den Nutzer interessieren könnten. "
+                f"Antworte NUR mit den 3 Fragen, eine pro Zeile, ohne Nummerierung, ohne Einleitung.\n\n"
+                f"Frage: {req.question}\n\n"
+                f"Antworte in der gleichen Sprache wie die Frage."
+            )
+            followup_resp = http_client.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={
+                    "model": LLM_MODEL,
+                    "prompt": followup_prompt,
+                    "system": "You generate concise follow-up questions. Output exactly 3 questions, one per line, nothing else.",
+                    "stream": False,
+                    "options": {"temperature": 0.7, "num_predict": 200},
+                },
+            )
+            followup_resp.raise_for_status()
+            raw = followup_resp.json().get("response", "")
+            questions = [
+                line.strip().lstrip("0123456789.-) ").strip()
+                for line in raw.strip().splitlines()
+                if line.strip() and len(line.strip()) > 5
+            ][:3]
+            if questions:
+                yield f"event: followups\ndata: {json.dumps(questions)}\n\n"
+        except Exception as e:
+            logger.warning(f"Follow-up generation failed (non-critical): {e}")
+
+        # 4) Signal completion with aggregated confidence metrics
         avg_probability = None
         numeric_probs = [t["probability"] for t in token_probs if isinstance(t.get("probability"), (int, float))]
         if numeric_probs:
