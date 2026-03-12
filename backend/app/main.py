@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import math
@@ -6,6 +7,7 @@ from pathlib import Path
 from typing import List
 
 import chromadb
+import fitz
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -234,6 +236,31 @@ def _retrieve_chunks(question: str) -> list:
     )
 
 
+def extract_page_images(pdf_path: str, page_num: int) -> list[str]:
+    """
+    Extract image-type blocks from a page using get_text("dict").
+    These are the regions PyMuPDF marks with green boxes in its demo —
+    type=1 blocks covering raster images, vector graphics, diagrams, etc.
+    Text blocks (type=0) are ignored entirely.
+    """
+    doc = fitz.open(pdf_path)
+    page = doc[page_num - 1]
+    b64_images = []
+
+    for block in page.get_text("dict")["blocks"]:
+        if block["type"] != 1:  # 1 = image (skip text blocks)
+            continue
+        rect = fitz.Rect(block["bbox"])
+        if rect.is_empty or rect.get_area() < 500:  # skip tiny ones
+            continue
+        pix = page.get_pixmap(dpi=150, clip=rect)
+        b64_images.append(base64.b64encode(pix.tobytes("png")).decode())
+        logger.info(f"  Extracted image block at {list(rect)} from {pdf_path} p{page_num}")
+
+    doc.close()
+    return b64_images
+
+
 def _build_prompt(question: str, chunks: list) -> str:
     lang = detect(question)
     context = "\n\n---\n\n".join(
@@ -298,6 +325,20 @@ def query_stream(req: QueryRequest):
         for name in pdf_names
     ]
 
+    # Extract image blocks from retrieved pages
+    all_images = []
+    seen_pages = set()
+    for c in chunks:
+        key = (c["file"], c["page"])
+        if key in seen_pages:
+            continue
+        seen_pages.add(key)
+        pdf_path = Path(DOCS_DIR) / c["file"]
+        all_images.extend(extract_page_images(str(pdf_path), c["page"]))
+
+    debug_info = {"image_count": len(all_images)}
+    logger.info(f"Debug: {debug_info}")
+
     def event_generator():
         # 1) Send enriched sources with chunk data as the first event
         yield f"event: sources\ndata: {json.dumps(sources_data)}\n\n"
@@ -315,6 +356,7 @@ def query_stream(req: QueryRequest):
                     "stream":       True,
                     "logprobs":     True,
                     "top_logprobs": 20,
+                    "images":       all_images,
                     "options": {"temperature": 0.1, "num_predict": 1024},
                 },
             ) as resp:
@@ -363,3 +405,38 @@ def query_stream(req: QueryRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+@app.get("/debug/images")
+def debug_images(question: str):
+    """Return all image blocks found for a query as an HTML page for visual inspection."""
+    try:
+        chunks = _retrieve_chunks(question)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    all_images = []
+    seen_pages = set()
+    for c in chunks:
+        key = (c["file"], c["page"])
+        if key in seen_pages:
+            continue
+        seen_pages.add(key)
+        pdf_path = Path(DOCS_DIR) / c["file"]
+        imgs = extract_page_images(str(pdf_path), c["page"])
+        for img in imgs:
+            all_images.append({
+                "file": c["file"],
+                "page": c["page"],
+                "b64":  img,
+            })
+
+    rows = "".join(
+        f'<div style="margin:20px;border:1px solid #ccc;padding:10px">'
+        f'<p><b>{i["file"]}</b> — page {i["page"]}</p>'
+        f'<img src="data:image/png;base64,{i["b64"]}" style="max-width:800px"/>'
+        f'</div>'
+        for i in all_images
+    ) or "<p>No image blocks found for this query.</p>"
+
+    html = f"<html><body><h2>Image blocks ({len(all_images)} found)</h2>{rows}</body></html>"
+    return Response(content=html, media_type="text/html")
