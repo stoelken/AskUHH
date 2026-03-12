@@ -7,7 +7,7 @@ from typing import List
 
 import chromadb
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from langchain_community.document_loaders import PyMuPDFLoader
@@ -83,6 +83,8 @@ class StatusResponse(BaseModel):
     pdf_count:   int
     chunk_count: int
     documents:   List[str]
+    indexed_documents: List[str]
+    needs_index: bool
     ollama_host: str
     llm_model:   str
     embed_model: str
@@ -92,6 +94,12 @@ class IngestResponse(BaseModel):
     message:     str
     pdf_count:   int
     chunk_count: int
+
+class UploadResponse(BaseModel):
+    success: bool
+    message: str
+    uploaded_files: List[str]
+    skipped_files: List[str]
 
 class HighlightRequest(BaseModel):
     filename: str
@@ -129,14 +137,54 @@ def highlight_pdf(req: HighlightRequest):
 @app.get("/status", response_model=StatusResponse)
 def status():
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
+    chunk_count = chroma_collection.count()
+
+    indexed_documents = []
+    if chunk_count > 0:
+        try:
+            meta_result = chroma_collection.get(include=["metadatas"])
+            metas = meta_result.get("metadatas", []) if meta_result else []
+            indexed_documents = sorted(
+                {
+                    m.get("file_name")
+                    for m in metas
+                    if isinstance(m, dict) and m.get("file_name")
+                }
+            )
+        except Exception:
+            logger.exception("Failed to determine indexed documents from Chroma metadata")
+
+    current_documents = sorted([f.name for f in pdf_files])
+    needs_index = bool(current_documents) and set(current_documents) != set(indexed_documents)
+
     return StatusResponse(
         pdf_count=len(pdf_files),
-        chunk_count=chroma_collection.count(),
-        documents=[f.name for f in pdf_files],
+        chunk_count=chunk_count,
+        documents=current_documents,
+        indexed_documents=indexed_documents,
+        needs_index=needs_index,
         ollama_host=OLLAMA_HOST,
         llm_model=LLM_MODEL,
         embed_model=EMBED_MODEL,
     )
+
+
+@app.delete("/documents/{filename}")
+def delete_document(filename: str):
+    safe_name = Path(filename).name
+    if not safe_name or Path(safe_name).suffix.lower() != ".pdf":
+        raise HTTPException(status_code=400, detail="Only PDF files can be deleted.")
+
+    target = Path(DOCS_DIR) / safe_name
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    try:
+        target.unlink()
+        return {"success": True, "message": f"Deleted {safe_name}."}
+    except Exception as e:
+        logger.error("Failed to delete %s: %s", safe_name, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete document.")
 
 @app.post("/ingest", response_model=IngestResponse)
 def ingest():
@@ -206,6 +254,50 @@ def ingest():
     except Exception as e:
         logger.error(f"Ingest failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/documents/upload", response_model=UploadResponse)
+async def upload_documents(files: List[UploadFile] = File(...)):
+    """Upload multiple PDF files into DOCS_DIR; indexing is triggered separately."""
+    docs_path = Path(DOCS_DIR)
+    docs_path.mkdir(parents=True, exist_ok=True)
+
+    uploaded_files: List[str] = []
+    skipped_files: List[str] = []
+
+    for file in files:
+        name = Path(file.filename or "").name
+        if not name or Path(name).suffix.lower() != ".pdf":
+            skipped_files.append(name or "unnamed")
+            continue
+
+        target = docs_path / name
+        try:
+            content = await file.read()
+            target.write_bytes(content)
+            uploaded_files.append(name)
+        except Exception:
+            logger.exception("Failed to store uploaded file: %s", name)
+            skipped_files.append(name)
+        finally:
+            await file.close()
+
+    if not uploaded_files:
+        raise HTTPException(
+            status_code=400,
+            detail="No valid PDF files uploaded.",
+        )
+
+    msg = f"Uploaded {len(uploaded_files)} PDF file(s)."
+    if skipped_files:
+        msg += f" Skipped {len(skipped_files)} file(s)."
+
+    return UploadResponse(
+        success=True,
+        message=msg,
+        uploaded_files=uploaded_files,
+        skipped_files=skipped_files,
+    )
 
 
 def _retrieve_chunks(question: str) -> list:
