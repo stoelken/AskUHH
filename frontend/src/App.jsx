@@ -58,6 +58,7 @@ export default function App() {
         role: msg.role,
         content: msg.content,
         sources: msg.sources || [],
+        followups: msg.followups || [],
         avgProbability: msg.avgProbability ?? null,
         logprobs: msg.logprobs ?? [],
         // streaming-Flag nicht speichern
@@ -135,6 +136,16 @@ export default function App() {
                 return updated
               })
             },
+            onFollowups(questions) {
+              setMessages((m) => {
+                const updated = [...m]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, followups: questions }
+                }
+                return updated
+              })
+            },
             onError(err) {
               setQueryError(err.message)
               setMessages((m) => {
@@ -173,6 +184,80 @@ export default function App() {
       e.preventDefault()
       handleSend()
     }
+  }
+
+  function handleFollowupClick(question) {
+    if (querying || animating) return
+    setInput(question)
+    setTimeout(() => {
+      setInput('')
+      setQueryError(null)
+      setMessages((m) => [...m, { role: 'user', content: question }])
+      setMessages((m) => [...m, { role: 'assistant', content: '', sources: [], streaming: true }])
+      setQuerying(true)
+
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      api.queryStream(
+        question,
+        {
+          onSources(sources) {
+            setMessages((m) => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') updated[updated.length - 1] = { ...last, sources }
+              return updated
+            })
+          },
+          onToken(token) {
+            setMessages((m) => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') updated[updated.length - 1] = { ...last, content: last.content + token }
+              return updated
+            })
+          },
+          onDone(data) {
+            setMessages((m) => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') updated[updated.length - 1] = { ...last, streaming: false, logprobs: data?.logprobs ?? [], avgProbability: data?.avg_probability ?? null }
+              return updated
+            })
+          },
+          onFollowups(questions) {
+            setMessages((m) => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') updated[updated.length - 1] = { ...last, followups: questions }
+              return updated
+            })
+          },
+          onError(err) {
+            setQueryError(err.message)
+            setMessages((m) => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') updated[updated.length - 1] = { ...last, streaming: false }
+              return updated
+            })
+          },
+        },
+        controller.signal
+      ).catch((e) => {
+        if (e.name !== 'AbortError') setQueryError(e.message)
+        setMessages((m) => {
+          const updated = [...m]
+          const last = updated[updated.length - 1]
+          if (last?.role === 'assistant') updated[updated.length - 1] = { ...last, streaming: false }
+          return updated
+        })
+      }).finally(() => {
+        abortRef.current = null
+        setQuerying(false)
+      })
+    }, 0)
   }
 
   const notIndexed = !statusLoading && status?.chunk_count === 0
@@ -263,7 +348,12 @@ export default function App() {
 
             <div className="chat-area" role="log" aria-live="polite" aria-label="Chat messages">
               {messages.map((msg, i) => (
-                <MessageItem key={i} {...msg} />
+                <MessageItem
+                  key={i}
+                  {...msg}
+                  isLatest={i === messages.length - 1 && msg.role === 'assistant'}
+                  onFollowupClick={handleFollowupClick}
+                />
               ))}
 
               {queryError && (

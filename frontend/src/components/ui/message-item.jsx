@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { BookOpen, ChevronDown, ChevronUp, FileText, Copy, Check } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronUp, FileText, Copy, Check, CornerDownRight } from 'lucide-react'
 import { Button } from './button'
 import { PdfModal, readableTitle } from './PdfModal'
 import { cn } from '@/lib/utils'
 
-export function MessageItem({ role, content, sources, avgProbability = null, streaming = false }) {
+export function MessageItem({ role, content, sources, avgProbability = null, streaming = false, followups = [], isLatest = false, onFollowupClick }) {
   const [srcOpen, setSrcOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const isUser = role === 'user'
@@ -130,6 +130,25 @@ export function MessageItem({ role, content, sources, avgProbability = null, str
               ))}
             </div>
           )}
+        </div>
+      )}
+      {!isUser && !streaming && isLatest && followups.length > 0 && (
+        <div className="followup-chips">
+          <span className="followup-label">
+            <CornerDownRight size={11} />
+            Das könnte dich auch interessieren
+          </span>
+          <div className="followup-chips-list">
+            {followups.map((q, idx) => (
+              <button
+                key={idx}
+                className="followup-chip"
+                onClick={() => onFollowupClick?.(q)}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
