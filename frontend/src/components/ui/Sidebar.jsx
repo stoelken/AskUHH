@@ -23,7 +23,6 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
 
   return (
     <aside className={`sidebar ${isOpen ? 'sidebar--open' : ''}`}>
-
       {/* Stats */}
       <div className="stat-grid">
         <div className="stat-card">
@@ -71,7 +70,6 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
           )}
         </div>
       )}
-
     </aside>
   )
 }
