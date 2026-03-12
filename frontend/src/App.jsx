@@ -58,6 +58,8 @@ export default function App() {
         role: msg.role,
         content: msg.content,
         sources: msg.sources || [],
+        avgProbability: msg.avgProbability ?? null,
+        logprobs: msg.logprobs ?? [],
         // streaming-Flag nicht speichern
       }))
       localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore))
@@ -127,6 +129,7 @@ export default function App() {
                     ...last,
                     streaming: false,
                     logprobs: data?.logprobs ?? [],
+                    avgProbability: data?.avg_probability ?? null,
                   }
                 }
                 return updated

@@ -5,7 +5,7 @@ import { Button } from './button'
 import { PdfModal, readableTitle } from './PdfModal'
 import { cn } from '@/lib/utils'
 
-export function MessageItem({ role, content, sources, streaming = false }) {
+export function MessageItem({ role, content, sources, avgProbability = null, streaming = false }) {
   const [srcOpen, setSrcOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const isUser = role === 'user'
@@ -70,7 +70,8 @@ export function MessageItem({ role, content, sources, streaming = false }) {
         )}
       </div>
 
-      {!isUser && !streaming && content?.trim() && (
+
+      {!isUser && !streaming && (pdfs.length > 0 || typeof avgProbability === 'number') && content?.trim() && (
         <button
           onClick={handleCopy}
           className="self-start flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] opacity-0 group-hover/msg:opacity-100 hover:!opacity-100 transition-opacity"
@@ -84,18 +85,26 @@ export function MessageItem({ role, content, sources, streaming = false }) {
 
       {!isUser && !streaming && pdfs.length > 0 && (
         <div className="flex flex-col gap-2 w-full">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSrcOpen((v) => !v)}
-            className="self-start gap-2 h-7 px-2 text-xs"
-          >
-            <BookOpen size={12} />
-            <span>
-              {pdfs.length} Document{pdfs.length > 1 ? 's' : ''}
-            </span>
-            {srcOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSrcOpen((v) => !v)}
+              className="self-start gap-2 h-7 px-2 text-xs"
+            >
+              <BookOpen size={12} />
+              <span>
+                {pdfs.length} Document{pdfs.length > 1 ? 's' : ''}
+              </span>
+              {srcOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </Button>
+
+            {typeof avgProbability === 'number' && (
+              <span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium border border-accent/40 bg-accent/10 text-accent">
+                Answer Certainty: {avgProbability.toFixed(1)}%
+              </span>
+            )}
+          </div>
 
           {srcOpen && (
             <div className="flex flex-col gap-2 pl-4 border-l-2 border-accent/30">

@@ -265,6 +265,78 @@ def _build_prompt(question: str, chunks: list) -> str:
     )
 
 
+def _extract_actual_token_probability(token_data: dict) -> tuple[str, float | None, list]:
+    """Return the generated token, its probability in %, and alternative candidates."""
+    generated_token = token_data.get("token", "")
+    top = token_data.get("top_logprobs", [])
+
+    probability = None
+    chosen_logprob = token_data.get("logprob")
+    if isinstance(chosen_logprob, (int, float)):
+        probability = round(math.exp(chosen_logprob) * 100, 1)
+    else:
+        for alt in top:
+            if alt.get("token") == generated_token and isinstance(alt.get("logprob"), (int, float)):
+                probability = round(math.exp(alt["logprob"]) * 100, 1)
+                break
+
+    alternatives = []
+    for alt in top:
+        alt_token = alt.get("token", "")
+        alt_logprob = alt.get("logprob")
+        if alt_token == generated_token:
+            continue
+        if not isinstance(alt_logprob, (int, float)):
+            continue
+        alternatives.append(
+            {
+                "token": alt_token,
+                "probability": round(math.exp(alt_logprob) * 100, 1),
+            }
+        )
+
+    return generated_token, probability, alternatives
+
+
+def _strip_think_content(state: dict, token: str) -> str:
+    """Strip <think>...</think> blocks from streamed text, also when tags are chunk-split."""
+    state["buffer"] += token
+    out = []
+
+    while True:
+        buf = state["buffer"]
+        low = buf.lower()
+
+        if state["in_think"]:
+            end_idx = low.find("</think>")
+            if end_idx == -1:
+                # Keep a small tail so split closing tags can be recognized later.
+                keep = len("</think>") - 1
+                if len(buf) > keep:
+                    state["buffer"] = buf[-keep:]
+                break
+            state["buffer"] = buf[end_idx + len("</think>"):]
+            state["in_think"] = False
+            continue
+
+        start_idx = low.find("<think>")
+        if start_idx == -1:
+            # Emit everything except a small tail for split opening tags.
+            keep = len("<think>") - 1
+            if len(buf) <= keep:
+                break
+            out.append(buf[:-keep])
+            state["buffer"] = buf[-keep:]
+            break
+
+        if start_idx > 0:
+            out.append(buf[:start_idx])
+        state["buffer"] = buf[start_idx + len("<think>"):]
+        state["in_think"] = True
+
+    return "".join(out)
+
+
 
 @app.post("/query/stream")
 def query_stream(req: QueryRequest):
@@ -304,6 +376,7 @@ def query_stream(req: QueryRequest):
 
         # 2) Stream LLM tokens from Ollama, collecting logprobs
         token_probs = []
+        think_state = {"buffer": "", "in_think": False}
         try:
             with http_client.stream(
                 "POST",
@@ -323,36 +396,49 @@ def query_stream(req: QueryRequest):
                     if not line:
                         continue
                     chunk_data = json.loads(line)
-                    token = chunk_data.get("response", "")
-                    if token:
-                        yield f"event: token\ndata: {json.dumps(token)}\n\n"
-
                     for token_data in chunk_data.get("logprobs", []):
-                        top = token_data.get("top_logprobs", [])
-                        if not top:
+                        generated_token, probability, alternatives = _extract_actual_token_probability(token_data)
+                        if not generated_token:
                             continue
-                        chosen = top[0]
-                        prob = math.exp(chosen["logprob"])
+                        visible_token = _strip_think_content(think_state, generated_token)
+                        if not visible_token:
+                            continue
+                        yield f"event: token\ndata: {json.dumps(visible_token)}\n\n"
                         token_probs.append({
-                            "token":        chosen["token"],
-                            "probability":  round(prob * 100, 1),
-                            "alternatives": [
-                                {
-                                    "token":       alt["token"],
-                                    "probability": round(math.exp(alt["logprob"]) * 100, 1),
-                                }
-                                for alt in top[1:]
-                            ],
+                            "token": visible_token,
+                            "probability": probability,
+                            "alternatives": alternatives,
                         })
 
                     if chunk_data.get("done", False):
+                        if not think_state["in_think"] and think_state["buffer"]:
+                            tail = think_state["buffer"]
+                            think_state["buffer"] = ""
+                            yield f"event: token\ndata: {json.dumps(tail)}\n\n"
+                            token_probs.append({
+                                "token": tail,
+                                "probability": None,
+                                "alternatives": [],
+                            })
                         break
         except Exception as e:
             logger.error(f"Streaming failed: {e}", exc_info=True)
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
 
-        # 3) Signal completion with logprobs
-        yield f"event: done\ndata: {json.dumps({'logprobs': token_probs})}\n\n"
+        # 3) Signal completion with aggregated confidence metrics
+        avg_probability = None
+        numeric_probs = [t["probability"] for t in token_probs if isinstance(t.get("probability"), (int, float))]
+        if numeric_probs:
+            avg_probability = round(
+                sum(numeric_probs) / len(numeric_probs),
+                1,
+            )
+        done_payload = {
+            "logprobs": token_probs,
+            "avg_probability": avg_probability,
+            "token_count": len(token_probs),
+        }
+        yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
 
     return StreamingResponse(
         event_generator(),
