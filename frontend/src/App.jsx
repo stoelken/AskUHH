@@ -60,6 +60,7 @@ export default function App() {
         sources: msg.sources || [],
         avgProbability: msg.avgProbability ?? null,
         logprobs: msg.logprobs ?? [],
+        followups: msg.followups ?? [],
         // streaming-Flag nicht speichern
       }))
       localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore))
@@ -84,93 +85,10 @@ export default function App() {
     if (!q || querying || animating) return
 
     setAnimating(true)
-    setTimeout(async () => {
+    setTimeout(() => {
       setAnimating(false)
       setInput('')
-      setQueryError(null)
-
-      const previousUserQuestions = messages
-        .filter((m) => m.role === 'user' && typeof m.content === 'string' && m.content.trim())
-        .map((m) => m.content.trim())
-        .slice(-8)
-
-      setMessages((m) => [...m, { role: 'user', content: q }])
-      setMessages((m) => [...m, { role: 'assistant', content: '', sources: [], streaming: true }])
-      setQuerying(true)
-
-      const controller = new AbortController()
-      abortRef.current = controller
-
-      try {
-        await api.queryStream(
-          q,
-          {
-            onSources(sources) {
-              setMessages((m) => {
-                const updated = [...m]
-                const last = updated[updated.length - 1]
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = { ...last, sources }
-                }
-                return updated
-              })
-            },
-            onToken(token) {
-              setMessages((m) => {
-                const updated = [...m]
-                const last = updated[updated.length - 1]
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = { ...last, content: last.content + token }
-                }
-                return updated
-              })
-            },
-            onDone(data) {
-              setMessages((m) => {
-                const updated = [...m]
-                const last = updated[updated.length - 1]
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = {
-                    ...last,
-                    streaming: false,
-                    logprobs: data?.logprobs ?? [],
-                    avgProbability: data?.avg_probability ?? null,
-                  }
-                }
-                return updated
-              })
-            },
-            onError(err) {
-              setQueryError(err.message)
-              setMessages((m) => {
-                const updated = [...m]
-                const last = updated[updated.length - 1]
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = { ...last, streaming: false }
-                }
-                return updated
-              })
-            },
-          },
-          controller.signal,
-          previousUserQuestions
-        )
-      } catch (e) {
-        if (e.name !== 'AbortError') {
-          setQueryError(e.message)
-        }
-        setMessages((m) => {
-          const updated = [...m]
-          const last = updated[updated.length - 1]
-          if (last?.role === 'assistant') {
-            updated[updated.length - 1] = { ...last, streaming: false }
-          }
-          return updated
-        })
-      } finally {
-        abortRef.current = null
-        setQuerying(false)
-      }
+      sendQuestion(q)
     }, 380)
   }
 
@@ -178,6 +96,114 @@ export default function App() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
+    }
+  }
+
+  function handleFollowupClick(question) {
+    if (querying || animating) return
+    setInput(question)
+    setTimeout(() => {
+      setInput('')
+      sendQuestion(question)
+    }, 50)
+  }
+
+  async function sendQuestion(q) {
+    if (!q || querying || animating) return
+
+    setQueryError(null)
+
+    const previousUserQuestions = messages
+      .filter((m) => m.role === 'user' && typeof m.content === 'string' && m.content.trim())
+      .map((m) => m.content.trim())
+      .slice(-8)
+
+    setMessages((m) => [...m, { role: 'user', content: q }])
+    setMessages((m) => [...m, { role: 'assistant', content: '', sources: [], streaming: true }])
+    setQuerying(true)
+
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    try {
+      await api.queryStream(
+        q,
+        {
+          onSources(sources) {
+            setMessages((m) => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') {
+                updated[updated.length - 1] = { ...last, sources }
+              }
+              return updated
+            })
+          },
+          onToken(token) {
+            setMessages((m) => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') {
+                updated[updated.length - 1] = { ...last, content: last.content + token }
+              }
+              return updated
+            })
+          },
+          onDone(data) {
+            setMessages((m) => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') {
+                updated[updated.length - 1] = {
+                  ...last,
+                  streaming: false,
+                  logprobs: data?.logprobs ?? [],
+                  avgProbability: data?.avg_probability ?? null,
+                }
+              }
+              return updated
+            })
+          },
+          onFollowups(followups) {
+            setMessages((m) => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') {
+                updated[updated.length - 1] = { ...last, followups }
+              }
+              return updated
+            })
+          },
+          onError(err) {
+            setQueryError(err.message)
+            setMessages((m) => {
+              const updated = [...m]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') {
+                updated[updated.length - 1] = { ...last, streaming: false }
+              }
+              return updated
+            })
+          },
+        },
+        controller.signal,
+        previousUserQuestions
+      )
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        setQueryError(e.message)
+      }
+      setMessages((m) => {
+        const updated = [...m]
+        const last = updated[updated.length - 1]
+        if (last?.role === 'assistant') {
+          updated[updated.length - 1] = { ...last, streaming: false }
+        }
+        return updated
+      })
+    } finally {
+      abortRef.current = null
+      setQuerying(false)
     }
   }
 
@@ -268,9 +294,20 @@ export default function App() {
             </button>
 
             <div className="chat-area" role="log" aria-live="polite" aria-label="Chat messages">
-              {messages.map((msg, i) => (
-                <MessageItem key={i} {...msg} />
-              ))}
+              {messages.map((msg, i) => {
+                const isLastAssistant =
+                  msg.role === 'assistant' &&
+                  !querying &&
+                  i === messages.length - 1
+                return (
+                  <MessageItem
+                    key={i}
+                    {...msg}
+                    showFollowups={isLastAssistant}
+                    onFollowupClick={handleFollowupClick}
+                  />
+                )
+              })}
 
               {queryError && (
                 <div className="banner banner-err" role="alert">
