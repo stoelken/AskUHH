@@ -444,7 +444,63 @@ def _strip_think_content(state: dict, token: str) -> str:
 
     return "".join(out)
 
+def _generate_followups(question: str, answer: str, chunks: list) -> list:
+    """Generate 3 contextual follow-up questions via Ollama with enforced JSON output."""
+    try:
+        lang = detect(question)
+    except Exception:
+        lang = "de"
 
+    context_hints = "\n".join(
+        f"- [{c['file']}, p.{c['page']}]: {c['text'][:300]}"
+        for c in chunks[:4]
+    )
+
+    prompt = (
+        "Based on the following question, answer, and document context, "
+        "suggest exactly 3 short follow-up questions the user might want to ask next.\n\n"
+        "Rules:\n"
+        "- Each question must be answerable from the same document collection.\n"
+        "- Keep each question under 12 words.\n"
+        "- Questions should explore different aspects, go deeper, or clarify related topics.\n"
+        "- Do NOT repeat the original question.\n"
+        f"- Write all questions in the same language as the original question (detected: {lang}).\n\n"
+        f"Original question: {question}\n\n"
+        f"Answer summary: {answer[:600]}\n\n"
+        f"Available context:\n{context_hints}\n\n"
+        'Respond with this exact JSON structure:\n'
+        '{"questions": ["question 1", "question 2", "question 3"]}'
+    )
+
+    resp = http_client.post(
+        f"{OLLAMA_HOST}/api/generate",
+        json={
+            "model": LLM_MODEL,
+            "prompt": prompt,
+            "system": "You are a helpful assistant. Respond with valid JSON only.",
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.6, "num_predict": 256},
+        },
+    )
+    resp.raise_for_status()
+    raw = resp.json().get("response", "").strip()
+    logger.info(f"Followup response: {raw[:300]!r}")
+
+    parsed = json.loads(raw)
+
+    # Accept both {"questions": [...]} and plain [...]
+    if isinstance(parsed, list):
+        items = parsed
+    elif isinstance(parsed, dict):
+        items = parsed.get("questions") or parsed.get("follow_ups") or parsed.get("followups") or []
+    else:
+        return []
+
+    return [
+        q.strip() for q in items
+        if isinstance(q, str) and q.strip()
+    ][:3]
 
 @app.post("/query/stream")
 def query_stream(req: QueryRequest):
@@ -548,6 +604,15 @@ def query_stream(req: QueryRequest):
             "token_count": len(token_probs),
         }
         yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
+
+        # 4) Generate follow-up questions
+        full_answer = "".join(t["token"] for t in token_probs if t.get("token"))
+        try:
+            followups = _generate_followups(req.question, full_answer, chunks)
+            if followups:
+                yield f"event: followups\ndata: {json.dumps(followups)}\n\n"
+        except Exception as e:
+            logger.warning(f"Follow-up generation failed (non-critical): {e}")
 
     return StreamingResponse(
         event_generator(),
