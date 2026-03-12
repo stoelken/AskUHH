@@ -10,6 +10,7 @@ export function MessageItem({ role, content, sources, avgProbability = null, str
   const [copied, setCopied] = useState(false)
   const isUser = role === 'user'
   const showTyping = !isUser && streaming && !content?.trim()
+  const showCopy = !isUser && !streaming && content?.trim()
 
   const pdfs =
     sources?.map((item) => {
@@ -39,6 +40,7 @@ export function MessageItem({ role, content, sources, avgProbability = null, str
           showTyping
             ? 'px-3 py-2 rounded-full w-fit'
             : 'px-4 py-3 rounded-lg max-w-full break-words overflow-hidden',
+          showCopy && 'relative pb-8',
           isUser ? 'border' : 'border'
         )}
         style={
@@ -68,20 +70,19 @@ export function MessageItem({ role, content, sources, avgProbability = null, str
             <ReactMarkdown>{content}</ReactMarkdown>
           </div>
         )}
+
+        {showCopy && (
+          <button
+            onClick={handleCopy}
+            className="absolute bottom-2 right-2 inline-flex items-center justify-center rounded p-1 opacity-70 hover:opacity-100 transition-opacity"
+            style={{ color: 'var(--msg-ai-text)' }}
+            title="Copy to clipboard"
+            aria-label="Copy to clipboard"
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+          </button>
+        )}
       </div>
-
-
-      {!isUser && !streaming && (pdfs.length > 0 || typeof avgProbability === 'number') && content?.trim() && (
-        <button
-          onClick={handleCopy}
-          className="self-start flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] opacity-0 group-hover/msg:opacity-100 hover:!opacity-100 transition-opacity"
-          style={{ color: 'var(--msg-ai-text)' }}
-          title="Copy to clipboard"
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-      )}
 
       {!isUser && !streaming && pdfs.length > 0 && (
         <div className="flex flex-col gap-2 w-full">
