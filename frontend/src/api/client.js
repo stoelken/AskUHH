@@ -92,6 +92,27 @@ async function queryStream(question, { onSources, onToken, onDone, onError }, si
 export const api = {
   status: () => request('/status'),
   ingest: () => request('/ingest', { method: 'POST' }),
+  uploadDocuments: async (files) => {
+    const formData = new FormData()
+    for (const file of files) {
+      formData.append('files', file)
+    }
+
+    const res = await fetch(`${BASE}/documents/upload`, {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || 'Upload failed')
+    }
+    return res.json()
+  },
+  deleteDocument: (filename) =>
+    request(`/documents/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+    }),
   query: (question, signal) =>
     request('/query', {
       method: 'POST',
