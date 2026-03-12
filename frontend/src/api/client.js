@@ -21,12 +21,13 @@ async function request(path, options = {}) {
  * @param {function} callbacks.onDone     - called when stream finishes
  * @param {function} callbacks.onError    - called on error
  * @param {AbortSignal} [signal]          - optional abort signal
+ * @param {string[]} [history]            - prior user questions
  */
-async function queryStream(question, { onSources, onToken, onDone, onError }, signal) {
+async function queryStream(question, { onSources, onToken, onDone, onError }, signal, history = []) {
   const res = await fetch(`${BASE}/query/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, history }),
     signal,
   })
 

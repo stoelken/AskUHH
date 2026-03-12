@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from langdetect import detect
 
 from .config import (
@@ -78,6 +78,7 @@ app.add_middleware(
 
 class QueryRequest(BaseModel):
     question: str
+    history: List[str] = Field(default_factory=list)
 
 class StatusResponse(BaseModel):
     pdf_count:   int
@@ -265,6 +266,21 @@ def _build_prompt(question: str, chunks: list) -> str:
     )
 
 
+def _compose_question_with_history(question: str, history: List[str]) -> str:
+    clean_history = [h.strip() for h in history if isinstance(h, str) and h.strip()]
+    if not clean_history:
+        return question
+
+    recent = clean_history[-8:]
+    history_block = "\n".join(f"- {item}" for item in recent)
+    return (
+        "Previous user questions (conversation context):\n"
+        f"{history_block}\n\n"
+        "Current question:\n"
+        f"{question}"
+    )
+
+
 def _extract_actual_token_probability(token_data: dict) -> tuple[str, float | None, list]:
     """Return the generated token, its probability in %, and alternative candidates."""
     generated_token = token_data.get("token", "")
@@ -345,8 +361,9 @@ def query_stream(req: QueryRequest):
         raise HTTPException(status_code=400, detail="No documents indexed yet. Call /ingest first.")
 
     try:
-        chunks = _retrieve_chunks(req.question)
-        prompt = _build_prompt(req.question, chunks)
+        merged_question = _compose_question_with_history(req.question, req.history)
+        chunks = _retrieve_chunks(merged_question)
+        prompt = _build_prompt(merged_question, chunks)
     except Exception as e:
         logger.error(f"Retrieval failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
