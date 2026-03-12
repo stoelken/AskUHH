@@ -5,7 +5,7 @@ import { Button } from './button'
 import { PdfModal, readableTitle } from './PdfModal'
 import { cn } from '@/lib/utils'
 
-export function MessageItem({ role, content, sources, streaming = false }) {
+export function MessageItem({ role, content, sources, streaming = false, debugImages = [] }) {
   const [srcOpen, setSrcOpen] = useState(false)
   const isUser = role === 'user'
   const showTyping = !isUser && streaming && !content?.trim()
@@ -61,6 +61,42 @@ export function MessageItem({ role, content, sources, streaming = false }) {
           </div>
         )}
       </div>
+
+      {!isUser && !streaming && (
+        <div
+          style={{
+            marginTop: '8px',
+            padding: '6px 10px',
+            background: '#22252b',
+            borderRadius: '6px',
+            fontSize: '11px',
+            color: '#6c757d',
+          }}
+        >
+          {debugImages.length > 0 ? (
+            <>
+              <p style={{ marginBottom: '6px' }}>{debugImages.length} image(s) sent to LLM</p>
+              <div
+                style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-start' }}
+              >
+                {debugImages.map((b64, i) => (
+                  <img
+                    key={i}
+                    src={`data:image/png;base64,${b64}`}
+                    style={{
+                      maxWidth: '300px',
+                      height: 'auto',
+                    }}
+                    alt={`Debug image ${i + 1}`}
+                  />
+                ))}
+              </div>
+            </>
+          ) : (
+            <p>no images sent to LLM</p>
+          )}
+        </div>
+      )}
 
       {!isUser && !streaming && pdfs.length > 0 && (
         <div className="flex flex-col gap-2 w-full">

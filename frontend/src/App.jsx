@@ -127,6 +127,7 @@ export default function App() {
                     ...last,
                     streaming: false,
                     logprobs: data?.logprobs ?? [],
+                    debugImages: data?.debug_images ?? [],
                   }
                 }
                 return updated

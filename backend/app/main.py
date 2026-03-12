@@ -214,7 +214,7 @@ def _retrieve_chunks(question: str) -> list:
     """Retrieval + sequential reranking."""
     results = chroma_collection.query(
         query_embeddings=[embed_query(question)],
-        n_results=min(RERANK_CANDIDATES, chroma_collection.count()),
+        n_results=max(1, min(RERANK_CANDIDATES, chroma_collection.count() - 1)),
         include=["documents", "metadatas", "distances"],
     )
     candidates = [
@@ -238,24 +238,45 @@ def _retrieve_chunks(question: str) -> list:
 
 def extract_page_images(pdf_path: str, page_num: int) -> list[str]:
     """
-    Extract image-type blocks from a page using get_text("dict").
-    These are the regions PyMuPDF marks with green boxes in its demo —
-    type=1 blocks covering raster images, vector graphics, diagrams, etc.
-    Text blocks (type=0) are ignored entirely.
+    Extract all graphical regions from a page:
+    1. type=1 blocks from get_text("dict") — embedded raster images
+    2. get_images() — XObject embedded images  
+    3. cluster_drawings() — vector graphics, SVGs, charts
     """
     doc = fitz.open(pdf_path)
     page = doc[page_num - 1]
     b64_images = []
+    seen_rects = []
 
-    for block in page.get_text("dict")["blocks"]:
-        if block["type"] != 1:  # 1 = image (skip text blocks)
-            continue
-        rect = fitz.Rect(block["bbox"])
-        if rect.is_empty or rect.get_area() < 500:  # skip tiny ones
-            continue
+    def is_duplicate(rect):
+        for seen in seen_rects:
+            if abs(rect.x0 - seen.x0) < 10 and abs(rect.y0 - seen.y0) < 10:
+                return True
+        return False
+
+    def crop_and_add(rect, source):
+        if rect.is_empty or rect.get_area() < 500:
+            return
+        if is_duplicate(rect):
+            return
+        seen_rects.append(rect)
         pix = page.get_pixmap(dpi=150, clip=rect)
         b64_images.append(base64.b64encode(pix.tobytes("png")).decode())
-        logger.info(f"  Extracted image block at {list(rect)} from {pdf_path} p{page_num}")
+        logger.info(f"  [{source}] image at {list(rect)} from {pdf_path} p{page_num}")
+
+    # 1) embedded raster blocks
+    for block in page.get_text("dict")["blocks"]:
+        if block["type"] == 1:
+            crop_and_add(fitz.Rect(block["bbox"]), "type1_block")
+
+    # 2) xobject images
+    for img_info in page.get_images(full=True):
+        bbox = page.get_image_bbox(img_info)
+        crop_and_add(bbox, "xobject")
+
+    # 3) vector graphics
+    for rect in page.cluster_drawings():
+        crop_and_add(rect, "drawing_cluster")
 
     doc.close()
     return b64_images
@@ -394,7 +415,7 @@ def query_stream(req: QueryRequest):
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
 
         # 3) Signal completion with logprobs
-        yield f"event: done\ndata: {json.dumps({'logprobs': token_probs})}\n\n"
+        yield f"event: done\ndata: {json.dumps({'logprobs': token_probs, 'debug_images': all_images})}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -405,38 +426,3 @@ def query_stream(req: QueryRequest):
             "X-Accel-Buffering": "no",
         },
     )
-
-@app.get("/debug/images")
-def debug_images(question: str):
-    """Return all image blocks found for a query as an HTML page for visual inspection."""
-    try:
-        chunks = _retrieve_chunks(question)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    all_images = []
-    seen_pages = set()
-    for c in chunks:
-        key = (c["file"], c["page"])
-        if key in seen_pages:
-            continue
-        seen_pages.add(key)
-        pdf_path = Path(DOCS_DIR) / c["file"]
-        imgs = extract_page_images(str(pdf_path), c["page"])
-        for img in imgs:
-            all_images.append({
-                "file": c["file"],
-                "page": c["page"],
-                "b64":  img,
-            })
-
-    rows = "".join(
-        f'<div style="margin:20px;border:1px solid #ccc;padding:10px">'
-        f'<p><b>{i["file"]}</b> — page {i["page"]}</p>'
-        f'<img src="data:image/png;base64,{i["b64"]}" style="max-width:800px"/>'
-        f'</div>'
-        for i in all_images
-    ) or "<p>No image blocks found for this query.</p>"
-
-    html = f"<html><body><h2>Image blocks ({len(all_images)} found)</h2>{rows}</body></html>"
-    return Response(content=html, media_type="text/html")
