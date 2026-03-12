@@ -243,6 +243,63 @@ body {
   border: 1px solid rgba(192, 80, 77, 0.3);
 }
 
+.dropzone {
+  border: 1px dashed var(--accent-dim);
+  border-radius: var(--radius);
+  background: rgba(213, 217, 224, 0.04);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.dropzone--active {
+  border-color: var(--accent);
+  background: rgba(213, 217, 224, 0.1);
+}
+
+.dropzone--disabled {
+  opacity: 0.7;
+}
+
+.dropzone-title {
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.dropzone-subtitle {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.dropzone-browse {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface2);
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 7px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.dropzone-browse:hover {
+  border-color: var(--accent-dim);
+  color: var(--text);
+}
+
+.dropzone-browse input {
+  display: none;
+}
+
 /* Doc list */
 .doc-list {
   font-size: 12px;
@@ -285,6 +342,52 @@ body {
   padding: 4px 8px;
   border-radius: 4px;
   background: var(--surface2);
+}
+
+.doc-list-item {
+  align-items: center;
+}
+
+.doc-list-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-delete-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.doc-list-item:hover .doc-delete-btn,
+.doc-delete-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.doc-delete-btn:hover:not(:disabled) {
+  color: var(--err);
+  background: rgba(224, 102, 102, 0.12);
+}
+
+.doc-delete-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .doc-list li svg {
