@@ -89,6 +89,11 @@ export default function App() {
       setInput('')
       setQueryError(null)
 
+      const previousUserQuestions = messages
+        .filter((m) => m.role === 'user' && typeof m.content === 'string' && m.content.trim())
+        .map((m) => m.content.trim())
+        .slice(-8)
+
       setMessages((m) => [...m, { role: 'user', content: q }])
       setMessages((m) => [...m, { role: 'assistant', content: '', sources: [], streaming: true }])
       setQuerying(true)
@@ -147,7 +152,8 @@ export default function App() {
               })
             },
           },
-          controller.signal
+          controller.signal,
+          previousUserQuestions
         )
       } catch (e) {
         if (e.name !== 'AbortError') {
