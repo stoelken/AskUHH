@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { BookOpen, ChevronDown, ChevronUp, FileText } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronUp, FileText, Copy, Check } from 'lucide-react'
 import { Button } from './button'
 import { PdfModal, readableTitle } from './PdfModal'
 import { cn } from '@/lib/utils'
 
 export function MessageItem({ role, content, sources, avgProbability = null, streaming = false }) {
   const [srcOpen, setSrcOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const isUser = role === 'user'
   const showTyping = !isUser && streaming && !content?.trim()
 
@@ -19,10 +20,17 @@ export function MessageItem({ role, content, sources, avgProbability = null, str
       }
     }) ?? []
 
+  const handleCopy = () => {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
   return (
     <div
       className={cn(
-        'flex flex-col gap-2 max-w-[680px] w-full px-4',
+        'flex flex-col gap-2 max-w-[680px] w-full px-4 group/msg',
         isUser ? 'ml-auto items-end' : 'mr-auto items-start'
       )}
     >
@@ -62,7 +70,20 @@ export function MessageItem({ role, content, sources, avgProbability = null, str
         )}
       </div>
 
-      {!isUser && !streaming && (pdfs.length > 0 || typeof avgProbability === 'number') && (
+
+      {!isUser && !streaming && (pdfs.length > 0 || typeof avgProbability === 'number') && content?.trim() && (
+        <button
+          onClick={handleCopy}
+          className="self-start flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] opacity-0 group-hover/msg:opacity-100 hover:!opacity-100 transition-opacity"
+          style={{ color: 'var(--msg-ai-text)' }}
+          title="Copy to clipboard"
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      )}
+
+      {!isUser && !streaming && pdfs.length > 0 && (
         <div className="flex flex-col gap-2 w-full">
           <div className="flex items-center gap-2 flex-wrap">
             <Button
