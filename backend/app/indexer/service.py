@@ -37,6 +37,7 @@ def ingest_pdfs(pdf_paths: List[Path]) -> dict:
     text_docs: List[str] = []
     text_metas: List[dict] = []
     pdf_count = 0
+    image_count = 0
 
     for pdf_path in pdf_paths:
         if pdf_path.suffix.lower() != ".pdf":
@@ -82,6 +83,7 @@ def ingest_pdfs(pdf_paths: List[Path]) -> dict:
                     "image_path": entry["image_path"],
                     "type": "image_description",
                 })
+                image_count += 1
 
     # ── Embed all text via Ollama and store ───────────────────────
     if text_docs:
@@ -96,7 +98,7 @@ def ingest_pdfs(pdf_paths: List[Path]) -> dict:
         "success": True,
         "pdf_count": pdf_count,
         "text_count": len(text_ids),
-        "image_count": 0,
+        "image_count": image_count,
     }
     logger.info(f"Ingest complete: {result}")
     return result
