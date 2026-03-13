@@ -21,17 +21,11 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend/data/docs:/data/docs   # drop PDFs here
-      - ./backend/data/chroma_db:/data/chroma_db     # persisted vector DB
     environment:
       - OLLAMA_HOST=${OLLAMA_HOST}
-      - LLM_MODEL=${LLM_MODEL:-qwen3:8b}
-      - EMBED_MODEL=${EMBED_MODEL:-snowflake-arctic-embed2}
-      - CHUNK_SIZE=${CHUNK_SIZE:-512}
-      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-64}
-      - TOP_K=${TOP_K:-4}
-      - RERANK_CANDIDATES=${RERANK_CANDIDATES:-15}
-      - RERANK_MODEL=${RERANK_MODEL:-dengcao/Qwen3-Reranker-0.6B:Q8_0}
-      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-}
+      - INDEXER_HOST=${INDEXER_HOST:-http://134.100.39.14:8500}
+      - LLM_MODEL=${LLM_MODEL:-qwen3-vl:8b-instruct}
+      - TOP_K_IMAGES=${TOP_K_IMAGES:-2}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 15s
@@ -39,33 +33,3 @@ services:
       retries: 5
       start_period: 20s
     restart: unless-stopped
-
-   # only starts with: docker compose --profile ollama up
-  ollama:
-    image: ollama/ollama:latest
-    container_name: askuhh-ollama
-    profiles:
-      - ollama
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
-    volumes:
-      - ollama_models:/root/.ollama
-    environment:
-      - CUDA_VISIBLE_DEVICES=1 
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep ollama > /dev/null || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
-volumes:
-  ollama_models:

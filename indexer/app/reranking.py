@@ -3,7 +3,11 @@ from typing import List
 
 import httpx
 
+from .config import OLLAMA_HOST, RERANK_MODEL
+
 logger = logging.getLogger(__name__)
+
+_client: httpx.Client | None = None
 
 _RERANK_SYSTEM = (
     "Judge whether the Document meets the requirements based on the Query and the "
@@ -12,23 +16,22 @@ _RERANK_SYSTEM = (
 _INSTRUCT = "Retrieve relevant passages that answer the question"
 
 
-def _score_one(
-    question: str,
-    doc_text: str,
-    ollama_host: str,
-    rerank_model: str,
-    client: httpx.Client,
-) -> bool:
+def init(client: httpx.Client) -> None:
+    global _client
+    _client = client
+
+
+def _score_one(question: str, doc_text: str) -> bool:
     """Score a single (question, document) pair. Returns True for relevant."""
     user_msg = (
         f"<Instruct>: {_INSTRUCT}\n"
         f"<Query>: {question}\n"
         f"<Document>: {doc_text}"
     )
-    resp = client.post(
-        f"{ollama_host}/api/chat",
+    resp = _client.post(
+        f"{OLLAMA_HOST}/api/chat",
         json={
-            "model": rerank_model,
+            "model": RERANK_MODEL,
             "messages": [
                 {"role": "system",    "content": _RERANK_SYSTEM},
                 {"role": "user",      "content": user_msg},
@@ -44,24 +47,15 @@ def _score_one(
     return "yes" in answer and "no" not in answer.split("yes")[0]
 
 
-def rerank(
-    question: str,
-    candidates: List[dict],
-    ollama_host: str,
-    rerank_model: str,
-    top_k: int,
-    client: httpx.Client,
-) -> List[dict]:
-    """Pointwise reranking – simple sequential loop.
+def rerank(question: str, candidates: List[dict], top_k: int) -> List[dict]:
+    """Pointwise reranking – sequential loop.
 
     Scores each candidate one by one, then returns up to top_k results
     preferring 'yes' chunks sorted by embedding score.
     """
     for i, c in enumerate(candidates):
         try:
-            relevant = _score_one(
-                question, c["text"][:2000], ollama_host, rerank_model, client,
-            )
+            relevant = _score_one(question, c["text"][:2000])
         except Exception as e:
             logger.warning(f"Rerank failed for candidate {i}: {e}")
             relevant = False

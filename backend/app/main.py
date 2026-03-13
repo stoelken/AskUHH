@@ -1,4 +1,3 @@
-import base64
 import json
 import logging
 import math
@@ -6,38 +5,27 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List
 
-import chromadb
-import fitz
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, Response
-from langchain_community.document_loaders import PyMuPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
 from langdetect import detect
 
-from .config import (
-    CHROMA_DIR, CHUNK_OVERLAP, CHUNK_SIZE, COLLECTION,
-    DOCS_DIR, EMBED_MODEL, LLM_MODEL, OLLAMA_HOST, RERANK_CANDIDATES,
-    RERANK_MODEL, SYSTEM_PROMPT, TOP_K,
-)
-from .embeddings import OllamaEmbeddingFunction, embed_query
-from . import embeddings
-from .reranking import rerank
+from .config import DOCS_DIR, INDEXER_HOST, LLM_MODEL, OLLAMA_HOST, SYSTEM_PROMPT, TOP_K_IMAGES
+from . import indexer_client
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-chroma_collection = None
 http_client: httpx.Client = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global chroma_collection, http_client
+    global http_client
 
     http_client = httpx.Client(
         timeout=httpx.Timeout(connect=10, read=180, write=30, pool=180),
@@ -47,22 +35,10 @@ async def lifespan(app: FastAPI):
             keepalive_expiry=120,
         ),
     )
+    indexer_client.init(http_client)
 
-    # Share the client with the embeddings module
-    embeddings.init(http_client)
-
-    db = chromadb.PersistentClient(path=CHROMA_DIR)
-    chroma_collection = db.get_or_create_collection(
-        name=COLLECTION,
-        embedding_function=OllamaEmbeddingFunction(),
-        metadata={"hnsw:space": "cosine"},
-    )
-    logger.info(f"Embedding model: {EMBED_MODEL} via Ollama")
-    logger.info(f"ChromaDB ready. Indexed chunks: {chroma_collection.count()}")
-    logger.info(
-        f"Reranking: pointwise via {RERANK_MODEL}, "
-        f"candidates={RERANK_CANDIDATES}"
-    )
+    logger.info(f"Ollama host: {OLLAMA_HOST}")
+    logger.info(f"Indexer host: {INDEXER_HOST}")
 
     yield
 
@@ -84,10 +60,10 @@ class QueryRequest(BaseModel):
 class StatusResponse(BaseModel):
     pdf_count:   int
     chunk_count: int
+    image_count: int = 0
     documents:   List[str]
     ollama_host: str
     llm_model:   str
-    embed_model: str
 
 class IngestResponse(BaseModel):
     success:     bool
@@ -97,7 +73,7 @@ class IngestResponse(BaseModel):
 
 class HighlightRequest(BaseModel):
     filename: str
-    chunks: List[dict]  
+    chunks: List[dict]
 
 @app.get("/health")
 def health():
@@ -131,155 +107,45 @@ def highlight_pdf(req: HighlightRequest):
 @app.get("/status", response_model=StatusResponse)
 def status():
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
+    text_count = 0
+    img_count = 0
+    try:
+        st = indexer_client.get_status()
+        text_count = st.get("text_count", 0)
+        img_count = st.get("image_count", 0)
+    except Exception:
+        pass
     return StatusResponse(
         pdf_count=len(pdf_files),
-        chunk_count=chroma_collection.count(),
+        chunk_count=text_count,
+        image_count=img_count,
         documents=[f.name for f in pdf_files],
         ollama_host=OLLAMA_HOST,
         llm_model=LLM_MODEL,
-        embed_model=EMBED_MODEL,
     )
 
 @app.post("/ingest", response_model=IngestResponse)
 def ingest():
-    """Load all PDFs, split into chunks, embed, and store in ChromaDB."""
+    """Upload all local PDFs to the indexer for text + image indexing."""
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
 
     if not pdf_files:
         raise HTTPException(status_code=400, detail=f"No PDF files found in {DOCS_DIR}.")
 
-    # Clearing
-    existing_ids = chroma_collection.get()["ids"]
-    if existing_ids:
-        chroma_collection.delete(ids=existing_ids)
-        logger.info(f"Cleared {len(existing_ids)} existing chunks before re-indexing.")
-
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", ". ", "! ", "? ", "; ", " "],
-        length_function=len,
-    )
-
-    all_ids:   List[str]  = []
-    all_texts: List[str]  = []
-    all_metas: List[dict] = []
-
     try:
-        for pdf_path in pdf_files:
-            logger.info(f"Extracting: {pdf_path.name}")
-            for page_doc in PyMuPDFLoader(str(pdf_path)).load():
-                text     = page_doc.page_content.strip()
-                page_num = int(page_doc.metadata.get("page", 0)) + 1
-
-                if not text:
-                    continue
-
-                for idx, chunk in enumerate(splitter.split_text(text)):
-                    chunk = chunk.strip()
-                    if len(chunk) < 40:
-                        continue
-                    all_ids.append(f"{pdf_path.stem}__p{page_num:04d}__c{idx:03d}")
-                    all_texts.append(chunk)
-                    all_metas.append({"file_name": pdf_path.name, "page": page_num})
-
-        if not all_texts:
-            raise HTTPException(status_code=400, detail="PDFs found but no text could be extracted.")
-
-        logger.info(f"Storing {len(all_texts)} chunks in ChromaDB...")
-        BATCH = 64
-        for i in range(0, len(all_texts), BATCH):
-            chroma_collection.upsert(
-                ids=all_ids[i:i+BATCH],
-                documents=all_texts[i:i+BATCH],
-                metadatas=all_metas[i:i+BATCH],
-            )
-            logger.info(f"  {min(i+BATCH, len(all_texts))} / {len(all_texts)} chunks stored")
+        result = indexer_client.ingest_pdfs(pdf_files)
+        text_count = result.get("text_count", 0)
+        image_count = result.get("image_count", 0)
 
         return IngestResponse(
             success=True,
-            message=f"Indexed {len(pdf_files)} PDF(s) into {len(all_ids)} chunks.",
-            pdf_count=len(pdf_files),
-            chunk_count=len(all_ids),
+            message=f"Indexed {result['pdf_count']} PDF(s): {text_count} text chunks + {image_count} images.",
+            pdf_count=result["pdf_count"],
+            chunk_count=text_count,
         )
-
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Ingest failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-def _retrieve_chunks(question: str) -> list:
-    """Retrieval + sequential reranking."""
-    results = chroma_collection.query(
-        query_embeddings=[embed_query(question)],
-        n_results=max(1, min(RERANK_CANDIDATES, chroma_collection.count() - 1)),
-        include=["documents", "metadatas", "distances"],
-    )
-    candidates = [
-        {
-            "text":  doc,
-            "file":  meta.get("file_name", "Unknown"),
-            "page":  int(meta.get("page", 0)),
-            "score": round(max(0.0, 1.0 - dist), 4),
-        }
-        for doc, meta, dist in zip(
-            results["documents"][0],
-            results["metadatas"][0],
-            results["distances"][0],
-        )
-    ]
-    return rerank(
-        question, candidates, OLLAMA_HOST, RERANK_MODEL, TOP_K,
-        client=http_client,
-    )
-
-
-def extract_page_images(pdf_path: str, page_num: int) -> list[str]:
-    """
-    Extract all graphical regions from a page:
-    1. type=1 blocks from get_text("dict") — embedded raster images
-    2. get_images() — XObject embedded images  
-    3. cluster_drawings() — vector graphics, SVGs, charts
-    """
-    doc = fitz.open(pdf_path)
-    page = doc[page_num - 1]
-    b64_images = []
-    seen_rects = []
-
-    def is_duplicate(rect):
-        for seen in seen_rects:
-            if abs(rect.x0 - seen.x0) < 10 and abs(rect.y0 - seen.y0) < 10:
-                return True
-        return False
-
-    def crop_and_add(rect, source):
-        if rect.is_empty or rect.get_area() < 500:
-            return
-        if is_duplicate(rect):
-            return
-        seen_rects.append(rect)
-        pix = page.get_pixmap(dpi=150, clip=rect)
-        b64_images.append(base64.b64encode(pix.tobytes("png")).decode())
-        logger.info(f"  [{source}] image at {list(rect)} from {pdf_path} p{page_num}")
-
-    # 1) embedded raster blocks
-    for block in page.get_text("dict")["blocks"]:
-        if block["type"] == 1:
-            crop_and_add(fitz.Rect(block["bbox"]), "type1_block")
-
-    # 2) xobject images
-    for img_info in page.get_images(full=True):
-        bbox = page.get_image_bbox(img_info)
-        crop_and_add(bbox, "xobject")
-
-    # 3) vector graphics
-    for rect in page.cluster_drawings():
-        crop_and_add(rect, "drawing_cluster")
-
-    doc.close()
-    return b64_images
 
 
 def _build_prompt(question: str, chunks: list) -> str:
@@ -313,19 +179,21 @@ def _build_prompt(question: str, chunks: list) -> str:
     )
 
 
-
 @app.post("/query/stream")
 def query_stream(req: QueryRequest):
     """SSE streaming endpoint: sends sources first, then LLM tokens, then done with logprobs."""
-    if chroma_collection.count() == 0:
+
+    # ── Retrieve text chunks from indexer ──────────────────────────
+    try:
+        chunks = indexer_client.search_text(req.question)
+    except Exception as e:
+        logger.error(f"Text retrieval failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not chunks:
         raise HTTPException(status_code=400, detail="No documents indexed yet. Call /ingest first.")
 
-    try:
-        chunks = _retrieve_chunks(req.question)
-        prompt = _build_prompt(req.question, chunks)
-    except Exception as e:
-        logger.error(f"Retrieval failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    prompt = _build_prompt(req.question, chunks)
 
     # Build sources data: group chunks by filename, keep top 3 per file
     sources_map = {}
@@ -346,19 +214,16 @@ def query_stream(req: QueryRequest):
         for name in pdf_names
     ]
 
-    # Extract image blocks from retrieved pages
+    # ── Get CLIP-ranked top images from indexer ────────────────────
     all_images = []
-    seen_pages = set()
-    for c in chunks:
-        key = (c["file"], c["page"])
-        if key in seen_pages:
-            continue
-        seen_pages.add(key)
-        pdf_path = Path(DOCS_DIR) / c["file"]
-        all_images.extend(extract_page_images(str(pdf_path), c["page"]))
+    try:
+        image_results = indexer_client.search_images(req.question, TOP_K_IMAGES)
+        all_images = [img["image_b64"] for img in image_results]
+        logger.info(f"CLIP image search: {len(all_images)} images, scores={[img['score'] for img in image_results]}")
+    except Exception as e:
+        logger.warning(f"Image retrieval from indexer failed: {e}")
 
-    debug_info = {"image_count": len(all_images)}
-    logger.info(f"Debug: {debug_info}")
+    logger.info(f"Debug: image_count={len(all_images)}")
 
     def event_generator():
         # 1) Send enriched sources with chunk data as the first event
