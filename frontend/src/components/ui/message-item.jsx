@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { BookOpen, ChevronDown, ChevronUp, FileText } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronUp, FileText, Image } from 'lucide-react'
 import { Button } from './button'
 import { PdfModal, readableTitle } from './PdfModal'
 import { cn } from '@/lib/utils'
 
 export function MessageItem({ role, content, sources, streaming = false, debugImages = [] }) {
   const [srcOpen, setSrcOpen] = useState(false)
+  const [imgOpen, setImgOpen] = useState(false)
   const isUser = role === 'user'
   const showTyping = !isUser && streaming && !content?.trim()
 
@@ -63,37 +64,44 @@ export function MessageItem({ role, content, sources, streaming = false, debugIm
       </div>
 
       {!isUser && !streaming && (
-        <div
-          style={{
-            marginTop: '8px',
-            padding: '6px 10px',
-            background: '#22252b',
-            borderRadius: '6px',
-            fontSize: '11px',
-            color: '#6c757d',
-          }}
-        >
-          {debugImages.length > 0 ? (
-            <>
-              <p style={{ marginBottom: '6px' }}>{debugImages.length} image(s) sent to LLM</p>
-              <div
-                style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-start' }}
-              >
-                {debugImages.map((b64, i) => (
-                  <img
-                    key={i}
-                    src={`data:image/png;base64,${b64}`}
-                    style={{
-                      maxWidth: '300px',
-                      height: 'auto',
-                    }}
-                    alt={`Debug image ${i + 1}`}
-                  />
-                ))}
-              </div>
-            </>
-          ) : (
-            <p>no images sent to LLM</p>
+        <div className="flex flex-col gap-2 w-full">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setImgOpen((v) => !v)}
+            className="self-start gap-2 h-7 px-2 text-xs"
+          >
+            <Image size={12} />
+            <span>
+              {debugImages.length} Image{debugImages.length !== 1 ? 's' : ''} sent to LLM
+            </span>
+            {imgOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </Button>
+
+          {imgOpen && (
+            <div className="flex flex-col gap-2 pl-4 border-l-2 border-accent/30">
+              {debugImages.length > 0 ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '8px',
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  {debugImages.map((b64, i) => (
+                    <img
+                      key={i}
+                      src={`data:image/png;base64,${b64}`}
+                      style={{ maxWidth: '300px', height: 'auto', borderRadius: '4px' }}
+                      alt={`Debug image ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No images found on retrieved pages.</p>
+              )}
+            </div>
           )}
         </div>
       )}
