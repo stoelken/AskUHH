@@ -1,13 +1,19 @@
 import { useState } from 'react'
-import { FileText, RefreshCw, Database, ChevronDown, ChevronRight } from 'lucide-react'
+import { FileText, RefreshCw, Database, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
 import { api } from '../../api/client'
 
 export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
   const [ingesting, setIngesting] = useState(false)
   const [ingestMsg, setIngestMsg] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadMsg, setUploadMsg] = useState(null)
+  const [dragActive, setDragActive] = useState(false)
+  const [deletingDoc, setDeletingDoc] = useState(null)
   const [docsOpen, setDocsOpen] = useState(true)
+  const canIngest = Boolean(status?.needs_index)
 
   async function handleIngest() {
+    if (!canIngest) return
     setIngesting(true)
     setIngestMsg(null)
     try {
@@ -21,9 +27,76 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
     }
   }
 
+  async function handleDeleteDocument(filename) {
+    if (!filename || deletingDoc) return
+    setDeletingDoc(filename)
+    setUploadMsg(null)
+    try {
+      const res = await api.deleteDocument(filename)
+      setUploadMsg({ ok: true, text: `${res.message} Click Index / Re-index to refresh embeddings.` })
+      onStatusRefresh()
+    } catch (e) {
+      setUploadMsg({ ok: false, text: e.message })
+    } finally {
+      setDeletingDoc(null)
+    }
+  }
+
+  function filterPdfFiles(files) {
+    return Array.from(files).filter(
+      (file) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    )
+  }
+
+  async function handleUploadFiles(fileList) {
+    const pdfFiles = filterPdfFiles(fileList)
+    if (pdfFiles.length === 0) {
+      setUploadMsg({ ok: false, text: 'Please drop/select at least one PDF file.' })
+      return
+    }
+
+    setUploading(true)
+    setUploadMsg(null)
+    try {
+      const res = await api.uploadDocuments(pdfFiles)
+      setUploadMsg({ ok: true, text: res.message })
+      onStatusRefresh()
+    } catch (e) {
+      setUploadMsg({ ok: false, text: e.message })
+    } finally {
+      setUploading(false)
+      setDragActive(false)
+    }
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault()
+    setDragActive(true)
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault()
+    setDragActive(false)
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    setDragActive(false)
+    if (uploading) return
+    if (!e.dataTransfer?.files?.length) return
+    handleUploadFiles(e.dataTransfer.files)
+  }
+
+  function handleFileInputChange(e) {
+    if (uploading) return
+    const files = e.target.files
+    if (!files?.length) return
+    handleUploadFiles(files)
+    e.target.value = ''
+  }
+
   return (
     <aside className={`sidebar ${isOpen ? 'sidebar--open' : ''}`}>
-
       {/* Stats */}
       <div className="stat-grid">
         <div className="stat-card">
@@ -42,7 +115,8 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
       <button
         className={`ingest-btn ${ingesting ? 'loading' : ''}`}
         onClick={handleIngest}
-        disabled={ingesting}
+        disabled={ingesting || !canIngest}
+        title={canIngest ? 'Index current documents' : 'No new documents to index'}
       >
         <RefreshCw size={14} className={ingesting ? 'spin' : ''} />
         {ingesting ? 'Indexing…' : 'Index / Re-index'}
@@ -50,6 +124,30 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
 
       {ingestMsg && (
         <div className={`ingest-msg ${ingestMsg.ok ? 'ok' : 'err'}`}>{ingestMsg.text}</div>
+      )}
+
+      <div
+        className={`dropzone ${dragActive ? 'dropzone--active' : ''} ${uploading ? 'dropzone--disabled' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <p className="dropzone-title">Drop PDFs here</p>
+        <p className="dropzone-subtitle">You can upload multiple files at once.</p>
+        <label className="dropzone-browse">
+          {uploading ? 'Uploading…' : 'Browse files'}
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            multiple
+            onChange={handleFileInputChange}
+            disabled={uploading}
+          />
+        </label>
+      </div>
+
+      {uploadMsg && (
+        <div className={`ingest-msg ${uploadMsg.ok ? 'ok' : 'err'}`}>{uploadMsg.text}</div>
       )}
 
       {/* Document list */}
@@ -62,16 +160,25 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
           {docsOpen && (
             <ul>
               {status.documents.map((d) => (
-                <li key={d}>
+                <li key={d} className="doc-list-item">
                   <FileText size={11} />
-                  <span>{d}</span>
+                  <span className="doc-list-name">{d}</span>
+                  <button
+                    type="button"
+                    className="doc-delete-btn"
+                    onClick={() => handleDeleteDocument(d)}
+                    disabled={deletingDoc === d}
+                    title={`Delete ${d}`}
+                    aria-label={`Delete ${d}`}
+                  >
+                    <Trash2 size={11} />
+                  </button>
                 </li>
               ))}
             </ul>
           )}
         </div>
       )}
-
     </aside>
   )
 }

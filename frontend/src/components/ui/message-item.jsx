@@ -1,15 +1,37 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { BookOpen, ChevronDown, ChevronUp, FileText, Image } from 'lucide-react'
+import {
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Image,
+  Copy,
+  Check,
+  CornerDownRight,
+} from 'lucide-react'
 import { Button } from './button'
 import { PdfModal, readableTitle } from './PdfModal'
 import { cn } from '@/lib/utils'
 
-export function MessageItem({ role, content, sources, streaming = false, debugImages = [] }) {
+export function MessageItem({
+  role,
+  content,
+  sources,
+  avgProbability = null,
+  streaming = false,
+  debugImages = [],
+  followups = [],
+  showFollowups = false,
+  onFollowupClick,
+}) {
   const [srcOpen, setSrcOpen] = useState(false)
   const [imgOpen, setImgOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+
   const isUser = role === 'user'
   const showTyping = !isUser && streaming && !content?.trim()
+  const showCopy = !isUser && !streaming && content?.trim()
 
   const pdfs =
     sources?.map((item) => {
@@ -20,10 +42,17 @@ export function MessageItem({ role, content, sources, streaming = false, debugIm
       }
     }) ?? []
 
+  const handleCopy = () => {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
   return (
     <div
       className={cn(
-        'flex flex-col gap-2 max-w-[680px] w-full px-4',
+        'flex flex-col gap-2 max-w-[680px] w-full px-4 group/msg',
         isUser ? 'ml-auto items-end' : 'mr-auto items-start'
       )}
     >
@@ -32,6 +61,7 @@ export function MessageItem({ role, content, sources, streaming = false, debugIm
           showTyping
             ? 'px-3 py-2 rounded-full w-fit'
             : 'px-4 py-3 rounded-lg max-w-full break-words overflow-hidden',
+          showCopy && 'relative pb-8',
           isUser ? 'border' : 'border'
         )}
         style={
@@ -61,8 +91,21 @@ export function MessageItem({ role, content, sources, streaming = false, debugIm
             <ReactMarkdown>{content}</ReactMarkdown>
           </div>
         )}
+
+        {showCopy && (
+          <button
+            onClick={handleCopy}
+            className="absolute bottom-2 right-2 inline-flex items-center justify-center rounded p-1 opacity-70 hover:opacity-100 transition-opacity"
+            style={{ color: 'var(--msg-ai-text)' }}
+            title="Copy to clipboard"
+            aria-label="Copy to clipboard"
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+          </button>
+        )}
       </div>
 
+      {/* ── Debug images (collapsible) ── */}
       {!isUser && !streaming && (
         <div className="flex flex-col gap-2 w-full">
           <Button
@@ -106,20 +149,29 @@ export function MessageItem({ role, content, sources, streaming = false, debugIm
         </div>
       )}
 
+      {/* ── Sources ── */}
       {!isUser && !streaming && pdfs.length > 0 && (
         <div className="flex flex-col gap-2 w-full">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSrcOpen((v) => !v)}
-            className="self-start gap-2 h-7 px-2 text-xs"
-          >
-            <BookOpen size={12} />
-            <span>
-              {pdfs.length} Document{pdfs.length > 1 ? 's' : ''}
-            </span>
-            {srcOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSrcOpen((v) => !v)}
+              className="self-start gap-2 h-7 px-2 text-xs"
+            >
+              <BookOpen size={12} />
+              <span>
+                {pdfs.length} Document{pdfs.length > 1 ? 's' : ''}
+              </span>
+              {srcOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </Button>
+
+            {typeof avgProbability === 'number' && (
+              <span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium border border-accent/40 bg-accent/10 text-accent">
+                Answer Certainty: {avgProbability.toFixed(1)}%
+              </span>
+            )}
+          </div>
 
           {srcOpen && (
             <div className="flex flex-col gap-2 pl-4 border-l-2 border-accent/30">
@@ -145,6 +197,26 @@ export function MessageItem({ role, content, sources, streaming = false, debugIm
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Follow-up suggestions ── */}
+      {showFollowups && followups?.length > 0 && (
+        <div className="followup-chips">
+          <span className="followup-label">
+            <CornerDownRight size={11} />
+            You might also want to know
+          </span>
+          {followups.map((q, idx) => (
+            <button
+              key={idx}
+              className="followup-chip"
+              onClick={() => onFollowupClick?.(q)}
+              title={q}
+            >
+              {q}
+            </button>
+          ))}
         </div>
       )}
     </div>

@@ -243,6 +243,63 @@ body {
   border: 1px solid rgba(192, 80, 77, 0.3);
 }
 
+.dropzone {
+  border: 1px dashed var(--accent-dim);
+  border-radius: var(--radius);
+  background: rgba(213, 217, 224, 0.04);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.dropzone--active {
+  border-color: var(--accent);
+  background: rgba(213, 217, 224, 0.1);
+}
+
+.dropzone--disabled {
+  opacity: 0.7;
+}
+
+.dropzone-title {
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.dropzone-subtitle {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.dropzone-browse {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface2);
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 7px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.dropzone-browse:hover {
+  border-color: var(--accent-dim);
+  color: var(--text);
+}
+
+.dropzone-browse input {
+  display: none;
+}
+
 /* Doc list */
 .doc-list {
   font-size: 12px;
@@ -285,6 +342,52 @@ body {
   padding: 4px 8px;
   border-radius: 4px;
   background: var(--surface2);
+}
+
+.doc-list-item {
+  align-items: center;
+}
+
+.doc-list-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-delete-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.doc-list-item:hover .doc-delete-btn,
+.doc-delete-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.doc-delete-btn:hover:not(:disabled) {
+  color: var(--err);
+  background: rgba(224, 102, 102, 0.12);
+}
+
+.doc-delete-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .doc-list li svg {
@@ -551,6 +654,71 @@ body {
   40% {
     transform: scale(1);
     opacity: 1;
+  }
+}
+
+/* ── Follow-up Questions ───────────────────────────────────────────────── */
+.followup-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+  animation: followup-fade-in 0.4s ease both;
+}
+
+.followup-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin-right: 2px;
+  user-select: none;
+}
+
+.followup-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--accent);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  cursor: pointer;
+  white-space: normal;
+  text-align: left;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.followup-chip:hover {
+  border-color: var(--accent-dim);
+  background: rgba(213, 217, 224, 0.08);
+  color: var(--text);
+  box-shadow: 0 0 0 1px rgba(213, 217, 224, 0.06);
+}
+
+.followup-chip:active {
+  transform: scale(0.97);
+}
+
+@keyframes followup-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

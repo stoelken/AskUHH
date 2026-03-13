@@ -16,17 +16,19 @@ async function request(path, options = {}) {
  * Stream a query via SSE.
  * @param {string} question
  * @param {object} callbacks
- * @param {function} callbacks.onSources  - called once with sources array
- * @param {function} callbacks.onToken    - called per token string
- * @param {function} callbacks.onDone     - called when stream finishes
- * @param {function} callbacks.onError    - called on error
- * @param {AbortSignal} [signal]          - optional abort signal
+ * @param {function} callbacks.onSources    - called once with sources array
+ * @param {function} callbacks.onToken      - called per token string
+ * @param {function} callbacks.onDone       - called when stream finishes
+ * @param {function} callbacks.onError      - called on error
+ * @param {function} callbacks.onFollowups  - called with follow-up questions array
+ * @param {AbortSignal} [signal]            - optional abort signal
+ * @param {string[]} [history]              - prior user questions
  */
-async function queryStream(question, { onSources, onToken, onDone, onError }, signal) {
+async function queryStream(question, { onSources, onToken, onDone, onError, onFollowups }, signal, history = []) {
   const res = await fetch(`${BASE}/query/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, history }),
     signal,
   })
 
@@ -78,6 +80,9 @@ async function queryStream(question, { onSources, onToken, onDone, onError }, si
           case 'done':
             onDone?.(parsed)
             break
+          case 'followups':
+            onFollowups?.(parsed)
+            break
           case 'error':
             onError?.(new Error(parsed))
             break
@@ -92,6 +97,27 @@ async function queryStream(question, { onSources, onToken, onDone, onError }, si
 export const api = {
   status: () => request('/status'),
   ingest: () => request('/ingest', { method: 'POST' }),
+  uploadDocuments: async (files) => {
+    const formData = new FormData()
+    for (const file of files) {
+      formData.append('files', file)
+    }
+
+    const res = await fetch(`${BASE}/documents/upload`, {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || 'Upload failed')
+    }
+    return res.json()
+  },
+  deleteDocument: (filename) =>
+    request(`/documents/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+    }),
   query: (question, signal) =>
     request('/query', {
       method: 'POST',

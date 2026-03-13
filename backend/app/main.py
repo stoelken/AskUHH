@@ -9,12 +9,12 @@ from typing import List
 import chromadb
 import fitz
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from langdetect import detect
 
 from .config import (
@@ -80,11 +80,14 @@ app.add_middleware(
 
 class QueryRequest(BaseModel):
     question: str
+    history: List[str] = Field(default_factory=list)
 
 class StatusResponse(BaseModel):
     pdf_count:   int
     chunk_count: int
     documents:   List[str]
+    indexed_documents: List[str]
+    needs_index: bool
     ollama_host: str
     llm_model:   str
     embed_model: str
@@ -95,9 +98,15 @@ class IngestResponse(BaseModel):
     pdf_count:   int
     chunk_count: int
 
+class UploadResponse(BaseModel):
+    success: bool
+    message: str
+    uploaded_files: List[str]
+    skipped_files: List[str]
+
 class HighlightRequest(BaseModel):
     filename: str
-    chunks: List[dict]  
+    chunks: List[dict]
 
 @app.get("/health")
 def health():
@@ -131,14 +140,55 @@ def highlight_pdf(req: HighlightRequest):
 @app.get("/status", response_model=StatusResponse)
 def status():
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
+    chunk_count = chroma_collection.count()
+
+    indexed_documents = []
+    if chunk_count > 0:
+        try:
+            meta_result = chroma_collection.get(include=["metadatas"])
+            metas = meta_result.get("metadatas", []) if meta_result else []
+            indexed_documents = sorted(
+                {
+                    m.get("file_name")
+                    for m in metas
+                    if isinstance(m, dict) and m.get("file_name")
+                }
+            )
+        except Exception:
+            logger.exception("Failed to determine indexed documents from Chroma metadata")
+
+    current_documents = sorted([f.name for f in pdf_files])
+    needs_index = bool(current_documents) and set(current_documents) != set(indexed_documents)
+
     return StatusResponse(
         pdf_count=len(pdf_files),
-        chunk_count=chroma_collection.count(),
-        documents=[f.name for f in pdf_files],
+        chunk_count=chunk_count,
+        documents=current_documents,
+        indexed_documents=indexed_documents,
+        needs_index=needs_index,
         ollama_host=OLLAMA_HOST,
         llm_model=LLM_MODEL,
         embed_model=EMBED_MODEL,
     )
+
+
+@app.delete("/documents/{filename}")
+def delete_document(filename: str):
+    safe_name = Path(filename).name
+    if not safe_name or Path(safe_name).suffix.lower() != ".pdf":
+        raise HTTPException(status_code=400, detail="Only PDF files can be deleted.")
+
+    target = Path(DOCS_DIR) / safe_name
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    try:
+        target.unlink()
+        return {"success": True, "message": f"Deleted {safe_name}."}
+    except Exception as e:
+        logger.error("Failed to delete %s: %s", safe_name, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete document.")
+
 
 @app.post("/ingest", response_model=IngestResponse)
 def ingest():
@@ -210,6 +260,50 @@ def ingest():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/documents/upload", response_model=UploadResponse)
+async def upload_documents(files: List[UploadFile] = File(...)):
+    """Upload multiple PDF files into DOCS_DIR; indexing is triggered separately."""
+    docs_path = Path(DOCS_DIR)
+    docs_path.mkdir(parents=True, exist_ok=True)
+
+    uploaded_files: List[str] = []
+    skipped_files: List[str] = []
+
+    for file in files:
+        name = Path(file.filename or "").name
+        if not name or Path(name).suffix.lower() != ".pdf":
+            skipped_files.append(name or "unnamed")
+            continue
+
+        target = docs_path / name
+        try:
+            content = await file.read()
+            target.write_bytes(content)
+            uploaded_files.append(name)
+        except Exception:
+            logger.exception("Failed to store uploaded file: %s", name)
+            skipped_files.append(name)
+        finally:
+            await file.close()
+
+    if not uploaded_files:
+        raise HTTPException(
+            status_code=400,
+            detail="No valid PDF files uploaded.",
+        )
+
+    msg = f"Uploaded {len(uploaded_files)} PDF file(s)."
+    if skipped_files:
+        msg += f" Skipped {len(skipped_files)} file(s)."
+
+    return UploadResponse(
+        success=True,
+        message=msg,
+        uploaded_files=uploaded_files,
+        skipped_files=skipped_files,
+    )
+
+
 def _retrieve_chunks(question: str) -> list:
     """Retrieval + sequential reranking."""
     results = chroma_collection.query(
@@ -239,9 +333,8 @@ def _retrieve_chunks(question: str) -> list:
 def extract_page_images(pdf_path: str, page_num: int) -> list[str]:
     """
     Extract all graphical regions from a page:
-    1. type=1 blocks from get_text("dict") — embedded raster images
-    2. get_images() — XObject embedded images  
-    3. cluster_drawings() — vector graphics, SVGs, charts
+    1. cluster_drawings() — vector graphics, SVGs, charts (primary)
+    2. get_images()       — XObject embedded raster images (fallback)
     """
     doc = fitz.open(pdf_path)
     page = doc[page_num - 1]
@@ -264,19 +357,17 @@ def extract_page_images(pdf_path: str, page_num: int) -> list[str]:
         b64_images.append(base64.b64encode(pix.tobytes("png")).decode())
         logger.info(f"  [{source}] image at {list(rect)} from {pdf_path} p{page_num}")
 
-    # 1) embedded raster blocks
-    for block in page.get_text("dict")["blocks"]:
-        if block["type"] == 1:
-            crop_and_add(fitz.Rect(block["bbox"]), "type1_block")
-
-    # 2) xobject images
-    for img_info in page.get_images(full=True):
-        bbox = page.get_image_bbox(img_info)
-        crop_and_add(bbox, "xobject")
-
-    # 3) vector graphics
+    # 1) Vector graphics, SVG, charts
     for rect in page.cluster_drawings():
         crop_and_add(rect, "drawing_cluster")
+
+    # 2) Embedded raster images
+    for img_info in page.get_images(full=True):
+        try:
+            bbox = page.get_image_bbox(img_info)
+            crop_and_add(bbox, "xobject")
+        except Exception:
+            pass
 
     doc.close()
     return b64_images
@@ -313,6 +404,148 @@ def _build_prompt(question: str, chunks: list) -> str:
     )
 
 
+def _compose_question_with_history(question: str, history: List[str]) -> str:
+    clean_history = [h.strip() for h in history if isinstance(h, str) and h.strip()]
+    if not clean_history:
+        return question
+
+    recent = clean_history[-8:]
+    history_block = "\n".join(f"- {item}" for item in recent)
+    return (
+        "Previous user questions (conversation context):\n"
+        f"{history_block}\n\n"
+        "Current question:\n"
+        f"{question}"
+    )
+
+
+def _extract_actual_token_probability(token_data: dict) -> tuple[str, float | None, list]:
+    """Return the generated token, its probability in %, and alternative candidates."""
+    generated_token = token_data.get("token", "")
+    top = token_data.get("top_logprobs", [])
+
+    probability = None
+    chosen_logprob = token_data.get("logprob")
+    if isinstance(chosen_logprob, (int, float)):
+        probability = round(math.exp(chosen_logprob) * 100, 1)
+    else:
+        for alt in top:
+            if alt.get("token") == generated_token and isinstance(alt.get("logprob"), (int, float)):
+                probability = round(math.exp(alt["logprob"]) * 100, 1)
+                break
+
+    alternatives = []
+    for alt in top:
+        alt_token = alt.get("token", "")
+        alt_logprob = alt.get("logprob")
+        if alt_token == generated_token:
+            continue
+        if not isinstance(alt_logprob, (int, float)):
+            continue
+        alternatives.append(
+            {
+                "token": alt_token,
+                "probability": round(math.exp(alt_logprob) * 100, 1),
+            }
+        )
+
+    return generated_token, probability, alternatives
+
+
+def _strip_think_content(state: dict, token: str) -> str:
+    """Strip <think>...</think> blocks from streamed text, also when tags are chunk-split."""
+    state["buffer"] += token
+    out = []
+
+    while True:
+        buf = state["buffer"]
+        low = buf.lower()
+
+        if state["in_think"]:
+            end_idx = low.find("</think>")
+            if end_idx == -1:
+                keep = len("</think>") - 1
+                if len(buf) > keep:
+                    state["buffer"] = buf[-keep:]
+                break
+            state["buffer"] = buf[end_idx + len("</think>"):]
+            state["in_think"] = False
+            continue
+
+        start_idx = low.find("<think>")
+        if start_idx == -1:
+            keep = len("<think>") - 1
+            if len(buf) <= keep:
+                break
+            out.append(buf[:-keep])
+            state["buffer"] = buf[-keep:]
+            break
+
+        if start_idx > 0:
+            out.append(buf[:start_idx])
+        state["buffer"] = buf[start_idx + len("<think>"):]
+        state["in_think"] = True
+
+    return "".join(out)
+
+
+def _generate_followups(question: str, answer: str, chunks: list) -> list:
+    """Generate 3 contextual follow-up questions via Ollama with enforced JSON output."""
+    try:
+        lang = detect(question)
+    except Exception:
+        lang = "de"
+
+    context_hints = "\n".join(
+        f"- [{c['file']}, p.{c['page']}]: {c['text'][:300]}"
+        for c in chunks[:4]
+    )
+
+    prompt = (
+        "Based on the following question, answer, and document context, "
+        "suggest exactly 3 short follow-up questions the user might want to ask next.\n\n"
+        "Rules:\n"
+        "- Each question must be answerable from the same document collection.\n"
+        "- Keep each question under 12 words.\n"
+        "- Questions should explore different aspects, go deeper, or clarify related topics.\n"
+        "- Do NOT repeat the original question.\n"
+        f"- Write all questions in the same language as the original question (detected: {lang}).\n\n"
+        f"Original question: {question}\n\n"
+        f"Answer summary: {answer[:600]}\n\n"
+        f"Available context:\n{context_hints}\n\n"
+        'Respond with this exact JSON structure:\n'
+        '{"questions": ["question 1", "question 2", "question 3"]}'
+    )
+
+    resp = http_client.post(
+        f"{OLLAMA_HOST}/api/generate",
+        json={
+            "model": LLM_MODEL,
+            "prompt": prompt,
+            "system": "You are a helpful assistant. Respond with valid JSON only.",
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.6, "num_predict": 256},
+        },
+    )
+    resp.raise_for_status()
+    raw = resp.json().get("response", "").strip()
+    logger.info(f"Followup response: {raw[:300]!r}")
+
+    parsed = json.loads(raw)
+
+    if isinstance(parsed, list):
+        items = parsed
+    elif isinstance(parsed, dict):
+        items = parsed.get("questions") or parsed.get("follow_ups") or parsed.get("followups") or []
+    else:
+        return []
+
+    return [
+        q.strip() for q in items
+        if isinstance(q, str) and q.strip()
+    ][:3]
+
 
 @app.post("/query/stream")
 def query_stream(req: QueryRequest):
@@ -321,8 +554,9 @@ def query_stream(req: QueryRequest):
         raise HTTPException(status_code=400, detail="No documents indexed yet. Call /ingest first.")
 
     try:
-        chunks = _retrieve_chunks(req.question)
-        prompt = _build_prompt(req.question, chunks)
+        merged_question = _compose_question_with_history(req.question, req.history)
+        chunks = _retrieve_chunks(merged_question)
+        prompt = _build_prompt(merged_question, chunks)
     except Exception as e:
         logger.error(f"Retrieval failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -357,8 +591,7 @@ def query_stream(req: QueryRequest):
         pdf_path = Path(DOCS_DIR) / c["file"]
         all_images.extend(extract_page_images(str(pdf_path), c["page"]))
 
-    debug_info = {"image_count": len(all_images)}
-    logger.info(f"Debug: {debug_info}")
+    logger.info(f"Debug: image_count={len(all_images)}")
 
     def event_generator():
         # 1) Send enriched sources with chunk data as the first event
@@ -366,6 +599,7 @@ def query_stream(req: QueryRequest):
 
         # 2) Stream LLM tokens from Ollama, collecting logprobs
         token_probs = []
+        think_state = {"buffer": "", "in_think": False}
         try:
             with http_client.stream(
                 "POST",
@@ -386,36 +620,57 @@ def query_stream(req: QueryRequest):
                     if not line:
                         continue
                     chunk_data = json.loads(line)
-                    token = chunk_data.get("response", "")
-                    if token:
-                        yield f"event: token\ndata: {json.dumps(token)}\n\n"
-
                     for token_data in chunk_data.get("logprobs", []):
-                        top = token_data.get("top_logprobs", [])
-                        if not top:
+                        generated_token, probability, alternatives = _extract_actual_token_probability(token_data)
+                        if not generated_token:
                             continue
-                        chosen = top[0]
-                        prob = math.exp(chosen["logprob"])
+                        visible_token = _strip_think_content(think_state, generated_token)
+                        if not visible_token:
+                            continue
+                        yield f"event: token\ndata: {json.dumps(visible_token)}\n\n"
                         token_probs.append({
-                            "token":        chosen["token"],
-                            "probability":  round(prob * 100, 1),
-                            "alternatives": [
-                                {
-                                    "token":       alt["token"],
-                                    "probability": round(math.exp(alt["logprob"]) * 100, 1),
-                                }
-                                for alt in top[1:]
-                            ],
+                            "token": visible_token,
+                            "probability": probability,
+                            "alternatives": alternatives,
                         })
 
                     if chunk_data.get("done", False):
+                        if not think_state["in_think"] and think_state["buffer"]:
+                            tail = think_state["buffer"]
+                            think_state["buffer"] = ""
+                            yield f"event: token\ndata: {json.dumps(tail)}\n\n"
+                            token_probs.append({
+                                "token": tail,
+                                "probability": None,
+                                "alternatives": [],
+                            })
                         break
         except Exception as e:
             logger.error(f"Streaming failed: {e}", exc_info=True)
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
 
-        # 3) Signal completion with logprobs
-        yield f"event: done\ndata: {json.dumps({'logprobs': token_probs, 'debug_images': all_images})}\n\n"
+        # 3) Signal completion with logprobs + debug images
+        avg_probability = None
+        numeric_probs = [t["probability"] for t in token_probs if isinstance(t.get("probability"), (int, float))]
+        if numeric_probs:
+            avg_probability = round(sum(numeric_probs) / len(numeric_probs), 1)
+
+        done_payload = {
+            "logprobs": token_probs,
+            "avg_probability": avg_probability,
+            "token_count": len(token_probs),
+            "debug_images": all_images,
+        }
+        yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
+
+        # 4) Generate follow-up questions
+        full_answer = "".join(t["token"] for t in token_probs if t.get("token"))
+        try:
+            followups = _generate_followups(req.question, full_answer, chunks)
+            if followups:
+                yield f"event: followups\ndata: {json.dumps(followups)}\n\n"
+        except Exception as e:
+            logger.warning(f"Follow-up generation failed (non-critical): {e}")
 
     return StreamingResponse(
         event_generator(),
