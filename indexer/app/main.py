@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
 
-from . import models, store, embeddings, reranking
+from . import models, store, embeddings, reranking, image_describer
 from .config import (
     CHUNK_OVERLAP, CHUNK_SIZE, IMAGES_DIR, OLLAMA_HOST,
     RERANK_CANDIDATES, TOP_K,
@@ -40,6 +40,7 @@ async def lifespan(app: FastAPI):
     )
     embeddings.init(http_client)
     reranking.init(http_client)
+    image_describer.init(http_client)
     models.load()
     store.init()
     logger.info(f"Ollama host: {OLLAMA_HOST}")
@@ -158,6 +159,22 @@ def ingest(files: List[UploadFile] = File(...)):
                     "page": entry["page"],
                     "image_path": entry["image_path"],
                     "page_text": entry["page_text"][:2000],
+                })
+
+            # ── Generate AI descriptions for images ────────────────
+            logger.info(f"Generating VLM descriptions for {len(image_entries)} images...")
+            descriptions = image_describer.describe_images(image_entries)
+            for entry, desc in zip(image_entries, descriptions):
+                if not desc or len(desc.strip()) < 20:
+                    continue
+                desc_id = f"{entry['id']}__desc"
+                text_ids.append(desc_id)
+                text_docs.append(desc)
+                text_metas.append({
+                    "file_name": entry["file_name"],
+                    "page": entry["page"],
+                    "image_path": entry["image_path"],
+                    "type": "image_description",
                 })
 
     # ── Embed text via Ollama and store ───────────────────────────
