@@ -16,14 +16,15 @@ async function request(path, options = {}) {
  * Stream a query via SSE.
  * @param {string} question
  * @param {object} callbacks
- * @param {function} callbacks.onSources  - called once with sources array
- * @param {function} callbacks.onToken    - called per token string
- * @param {function} callbacks.onDone     - called when stream finishes
- * @param {function} callbacks.onError    - called on error
- * @param {AbortSignal} [signal]          - optional abort signal
- * @param {string[]} [history]            - prior user questions
+ * @param {function} callbacks.onSources    - called once with sources array
+ * @param {function} callbacks.onToken      - called per token string
+ * @param {function} callbacks.onDone       - called when stream finishes
+ * @param {function} callbacks.onError      - called on error
+ * @param {function} callbacks.onFollowups  - called with follow-up questions array
+ * @param {AbortSignal} [signal]            - optional abort signal
+ * @param {string[]} [history]              - prior user questions
  */
-async function queryStream(question, { onSources, onToken, onDone, onError }, signal, history = []) {
+async function queryStream(question, { onSources, onToken, onDone, onError, onFollowups }, signal, history = []) {
   const res = await fetch(`${BASE}/query/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -78,6 +79,9 @@ async function queryStream(question, { onSources, onToken, onDone, onError }, si
             break
           case 'done':
             onDone?.(parsed)
+            break
+          case 'followups':
+            onFollowups?.(parsed)
             break
           case 'error':
             onError?.(new Error(parsed))
