@@ -6,7 +6,7 @@ import fitz
 from PIL import Image
 import io
 
-from .config import IMAGES_DIR
+from ..config import IMAGES_DIR
 
 logger = logging.getLogger(__name__)
 

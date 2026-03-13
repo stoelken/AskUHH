@@ -1,48 +1,9 @@
 services:
-
-  indexer:
-    build:
-      context: ./indexer
-      dockerfile: Dockerfile
-    container_name: askuhh-indexer
-    ports:
-      - "8500:8500"
-    volumes:
-      - indexer_chroma:/data/chroma_db
-      - indexer_images:/data/images
-    environment:
-      - DEVICE=cuda
-      - CLIP_MODEL=${CLIP_MODEL:-openai/clip-vit-base-patch32}
-      - OLLAMA_HOST=http://askuhh-ollama:11434
-      - EMBED_MODEL=${EMBED_MODEL:-snowflake-arctic-embed2}
-      - RERANK_MODEL=${RERANK_MODEL:-dengcao/Qwen3-Reranker-0.6B:Q8_0}
-      - RERANK_CANDIDATES=${RERANK_CANDIDATES:-15}
-      - TOP_K=${TOP_K:-4}
-      - CHUNK_SIZE=${CHUNK_SIZE:-512}
-      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-64}
-    depends_on:
-      ollama:
-        condition: service_healthy
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8500/health')\""]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
-    restart: unless-stopped
-
   ollama:
     image: ollama/ollama:latest
     container_name: askuhh-ollama
     ports:
-      - "${OLLAMA_PORT:-11435}:11434"
+      - '${OLLAMA_PORT:-11435}:11434'
     volumes:
       - ollama_models:/root/.ollama
     deploy:
@@ -53,7 +14,7 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD-SHELL", "pgrep ollama > /dev/null || exit 1"]
+      test: ['CMD-SHELL', 'pgrep ollama > /dev/null || exit 1']
       interval: 10s
       timeout: 5s
       retries: 3
@@ -61,6 +22,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  indexer_chroma:
-  indexer_images:
   ollama_models:

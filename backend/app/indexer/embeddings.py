@@ -3,7 +3,7 @@ from typing import List
 
 import httpx
 
-from .config import OLLAMA_HOST, EMBED_MODEL
+from ..config import OLLAMA_HOST, EMBED_MODEL
 
 logger = logging.getLogger(__name__)
 

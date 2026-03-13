@@ -1,12 +1,11 @@
 services:
-
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: askuhh-frontend
     ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      - '${FRONTEND_PORT:-3000}:80'
     depends_on:
       backend:
         condition: service_healthy
@@ -18,18 +17,31 @@ services:
       dockerfile: Dockerfile
     container_name: askuhh-backend
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - '${BACKEND_PORT:-8000}:8000'
     volumes:
-      - ./backend/data/docs:/data/docs   # drop PDFs here
+      - ./backend/data/docs:/data/docs
+      - backend_chroma:/data/chroma_db
+      - backend_images:/data/images
     environment:
       - OLLAMA_HOST=${OLLAMA_HOST}
-      - INDEXER_HOST=${INDEXER_HOST:-http://134.100.39.14:8500}
       - LLM_MODEL=${LLM_MODEL:-qwen3-vl:8b-instruct}
+      - EMBED_MODEL=${EMBED_MODEL:-snowflake-arctic-embed2}
+      - VLM_MODEL=${VLM_MODEL:-qwen3-vl:8b-instruct}
       - TOP_K_IMAGES=${TOP_K_IMAGES:-2}
+      - CHROMA_DIR=/data/chroma_db
+      - IMAGES_DIR=/data/images
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      test:
+        [
+          'CMD-SHELL',
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/health'')"',
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 20s
     restart: unless-stopped
+
+volumes:
+  backend_chroma:
+  backend_images:

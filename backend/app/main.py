@@ -12,8 +12,8 @@ from fastapi.responses import FileResponse, StreamingResponse, Response
 from pydantic import BaseModel
 from langdetect import detect
 
-from .config import DOCS_DIR, INDEXER_HOST, LLM_MODEL, OLLAMA_HOST, SYSTEM_PROMPT, TOP_K_IMAGES
-from . import indexer_client
+from .config import DOCS_DIR, LLM_MODEL, OLLAMA_HOST, SYSTEM_PROMPT, TOP_K_IMAGES
+from .indexer import service as indexer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,10 +35,9 @@ async def lifespan(app: FastAPI):
             keepalive_expiry=120,
         ),
     )
-    indexer_client.init(http_client)
+    indexer.init(http_client)
 
     logger.info(f"Ollama host: {OLLAMA_HOST}")
-    logger.info(f"Indexer host: {INDEXER_HOST}")
 
     yield
 
@@ -110,7 +109,7 @@ def status():
     text_count = 0
     img_count = 0
     try:
-        st = indexer_client.get_status()
+        st = indexer.get_status()
         text_count = st.get("text_count", 0)
         img_count = st.get("image_count", 0)
     except Exception:
@@ -133,7 +132,7 @@ def ingest():
         raise HTTPException(status_code=400, detail=f"No PDF files found in {DOCS_DIR}.")
 
     try:
-        result = indexer_client.ingest_pdfs(pdf_files)
+        result = indexer.ingest_pdfs(pdf_files)
         text_count = result.get("text_count", 0)
         image_count = result.get("image_count", 0)
 
@@ -185,7 +184,7 @@ def query_stream(req: QueryRequest):
 
     # ── Retrieve text chunks from indexer ──────────────────────────
     try:
-        chunks = indexer_client.search_text(req.question)
+        chunks = indexer.search_text(req.question)
     except Exception as e:
         logger.error(f"Text retrieval failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -214,12 +213,12 @@ def query_stream(req: QueryRequest):
         for name in pdf_names
     ]
 
-    # ── Get CLIP-ranked top images from indexer ────────────────────
+    # ── Get top images via description search ──────────────────────
     all_images = []
     try:
-        image_results = indexer_client.search_images(req.question, TOP_K_IMAGES)
+        image_results = indexer.search_images(req.question, TOP_K_IMAGES)
         all_images = [img["image_b64"] for img in image_results]
-        logger.info(f"CLIP image search: {len(all_images)} images, scores={[img['score'] for img in image_results]}")
+        logger.info(f"Image search: {len(all_images)} images, scores={[img['score'] for img in image_results]}")
     except Exception as e:
         logger.warning(f"Image retrieval from indexer failed: {e}")
 

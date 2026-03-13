@@ -6,7 +6,7 @@ from typing import List
 import httpx
 from PIL import Image
 
-from .config import OLLAMA_HOST, VLM_MODEL
+from ..config import OLLAMA_HOST, VLM_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ _client: httpx.Client | None = None
 
 _PROMPT = (
     "Describe this document image concisely. "
-    "State the type (table, bar chart, line chart, flowchart, pie chart, diagram, etc.). "
+    "Only state the type (table, bar chart, line chart, flowchart, pie chart, diagram, etc.). "
     "List all visible data, numbers, labels, axes, and legends. "
     "State the topic and key takeaway."
 )
