@@ -130,9 +130,11 @@ export function MessageItem({
                         <p className="text-xs font-medium text-accent truncate">
                           {readableTitle(item.filename)}
                         </p>
-                        <span className="inline-flex items-center mt-1 rounded px-2 py-0.5 text-[11px] font-medium text-accent border border-accent/45 bg-accent/12 group-hover:bg-accent/20 group-hover:border-accent/65 transition-colors">
-                          Open PDF
-                        </span>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium text-accent border border-accent/45 bg-accent/12 group-hover:bg-accent/20 group-hover:border-accent/65 transition-colors">
+                            Open PDF
+                          </span>
+                        </div>
                       </div>
                     </button>
                   }
