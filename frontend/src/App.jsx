@@ -159,6 +159,7 @@ export default function App() {
                   streaming: false,
                   logprobs: data?.logprobs ?? [],
                   avgProbability: data?.avg_probability ?? null,
+                  debugImages: data?.debug_images ?? [],
                 }
               }
               return updated
@@ -213,7 +214,9 @@ export default function App() {
     <div className={centered ? 'input-row input-row--centered' : 'input-row'}>
       <textarea
         ref={textareaRef}
-        className={`chat-textarea${animating ? ' chat-textarea--vanishing' : ''}${!centered ? ' chat-textarea--followup' : ''}`}
+        className={`chat-textarea${animating ? ' chat-textarea--vanishing' : ''}${
+          !centered ? ' chat-textarea--followup' : ''
+        }`}
         placeholder={centered ? 'Ask about university regulations…' : 'Follow-up question…'}
         value={input}
         onChange={(e) => !animating && setInput(e.target.value)}
@@ -296,9 +299,7 @@ export default function App() {
             <div className="chat-area" role="log" aria-live="polite" aria-label="Chat messages">
               {messages.map((msg, i) => {
                 const isLastAssistant =
-                  msg.role === 'assistant' &&
-                  !querying &&
-                  i === messages.length - 1
+                  msg.role === 'assistant' && !querying && i === messages.length - 1
                 return (
                   <MessageItem
                     key={i}

@@ -1,6 +1,15 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { BookOpen, ChevronDown, ChevronUp, FileText, Copy, Check, CornerDownRight } from 'lucide-react'
+import {
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Image,
+  Copy,
+  Check,
+  CornerDownRight,
+} from 'lucide-react'
 import { Button } from './button'
 import { PdfModal, readableTitle } from './PdfModal'
 import { cn } from '@/lib/utils'
@@ -11,12 +20,15 @@ export function MessageItem({
   sources,
   avgProbability = null,
   streaming = false,
+  debugImages = [],
   followups = [],
   showFollowups = false,
   onFollowupClick,
 }) {
   const [srcOpen, setSrcOpen] = useState(false)
+  const [imgOpen, setImgOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+
   const isUser = role === 'user'
   const showTyping = !isUser && streaming && !content?.trim()
   const showCopy = !isUser && !streaming && content?.trim()
@@ -93,6 +105,51 @@ export function MessageItem({
         )}
       </div>
 
+      {/* ── Debug images (collapsible) ── */}
+      {!isUser && !streaming && (
+        <div className="flex flex-col gap-2 w-full">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setImgOpen((v) => !v)}
+            className="self-start gap-2 h-7 px-2 text-xs"
+          >
+            <Image size={12} />
+            <span>
+              {debugImages.length} Image{debugImages.length !== 1 ? 's' : ''} sent to LLM
+            </span>
+            {imgOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </Button>
+
+          {imgOpen && (
+            <div className="flex flex-col gap-2 pl-4 border-l-2 border-accent/30">
+              {debugImages.length > 0 ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '8px',
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  {debugImages.map((b64, i) => (
+                    <img
+                      key={i}
+                      src={`data:image/png;base64,${b64}`}
+                      style={{ maxWidth: '300px', height: 'auto', borderRadius: '4px' }}
+                      alt={`Debug image ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No images found on retrieved pages.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Sources ── */}
       {!isUser && !streaming && pdfs.length > 0 && (
         <div className="flex flex-col gap-2 w-full">
           <div className="flex items-center gap-2 flex-wrap">
@@ -143,6 +200,7 @@ export function MessageItem({
         </div>
       )}
 
+      {/* ── Follow-up suggestions ── */}
       {showFollowups && followups?.length > 0 && (
         <div className="followup-chips">
           <span className="followup-label">
