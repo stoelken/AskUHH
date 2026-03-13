@@ -11,10 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
 
-from . import models, store, embeddings, reranking, image_describer
+from . import models, store, embeddings, image_describer
 from .config import (
-    CHUNK_OVERLAP, CHUNK_SIZE, IMAGES_DIR, OLLAMA_HOST,
-    RERANK_CANDIDATES, TOP_K,
+    CHUNK_OVERLAP, CHUNK_SIZE, IMAGES_DIR, OLLAMA_HOST, TOP_K,
 )
 from .pdf_processor import extract_images_from_pdf
 
@@ -39,7 +38,6 @@ async def lifespan(app: FastAPI):
         ),
     )
     embeddings.init(http_client)
-    reranking.init(http_client)
     image_describer.init(http_client)
     models.load()
     store.init()
@@ -67,7 +65,6 @@ class ImageSearchRequest(BaseModel):
 class TextSearchRequest(BaseModel):
     query: str
     top_k: int = 4
-    rerank_candidates: int = 15
 
 
 @app.get("/health")
@@ -202,15 +199,15 @@ def ingest(files: List[UploadFile] = File(...)):
 
 @app.post("/search/text")
 def search_text(req: TextSearchRequest):
-    """Embed query via Ollama, search text collection, rerank, return top-k."""
+    """Embed query via Ollama, search text collection, return top-k."""
     if store.text_count() == 0:
         return {"text_results": []}
 
     query_embedding = embeddings.embed_query(req.query)
-    n = max(1, min(req.rerank_candidates, store.text_count()))
+    n = max(1, min(req.top_k, store.text_count()))
     results = store.search_text(query_embedding, n_results=n)
 
-    candidates = [
+    ranked = [
         {
             "text": doc,
             "file": meta.get("file_name", "Unknown"),
@@ -224,11 +221,8 @@ def search_text(req: TextSearchRequest):
         )
     ]
 
-    ranked = reranking.rerank(req.query, candidates, req.top_k)
-
     logger.info(
-        f"Text search for {req.query!r}: "
-        f"{len(ranked)} results after reranking from {len(candidates)} candidates"
+        f"Text search for {req.query!r}: {len(ranked)} results"
     )
     return {"text_results": ranked}
 
