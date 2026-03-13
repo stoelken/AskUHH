@@ -111,6 +111,28 @@ def search_text(query_embedding: List[float], n_results: int) -> dict:
         return _get_all_fallback(_text_collection, query_embedding, n, include_documents=True)
 
 
+def search_text_filtered(
+    query_embedding: List[float],
+    n_results: int,
+    where: dict,
+) -> dict:
+    """Search text collection with a metadata filter (e.g. type == 'image_description')."""
+    count = _text_collection.count()
+    if count == 0:
+        return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+    n = max(1, min(n_results, count))
+    try:
+        return _text_collection.query(
+            query_embeddings=[query_embedding],
+            n_results=n,
+            where=where,
+            include=["documents", "metadatas", "distances"],
+        )
+    except Exception:
+        logger.warning(f"Filtered text search failed (where={where}), returning empty")
+        return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+
 def clear_text() -> None:
     existing = _text_collection.get()["ids"]
     if existing:

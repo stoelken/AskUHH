@@ -235,18 +235,17 @@ def search_text(req: TextSearchRequest):
 
 @app.post("/search/images")
 def search_images(req: ImageSearchRequest):
-    """Hybrid image search: CLIP visual similarity + page text match boost."""
+    """Hybrid image search: CLIP + text description matching."""
     logger.info(f"Image search request: query={req.query!r}, top_k={req.top_k}")
     if store.image_count() == 0:
         return {"image_results": []}
 
-    # Fetch more candidates than needed, then re-rank with text boost
+    # ── 1) CLIP visual search ─────────────────────────────────────
     n_candidates = max(req.top_k * 3, 10)
     query_embedding = models.embed_query(req.query)
     results = store.search_images(query_embedding, n_results=n_candidates)
 
     query_lower = req.query.lower()
-    # Filter stop words — only meaningful terms should drive the text boost
     stop_words = {
         "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "einem",
         "einen", "und", "oder", "aber", "für", "von", "mit", "bei", "nach", "aus",
@@ -257,34 +256,54 @@ def search_images(req: ImageSearchRequest):
         "from", "what", "how", "who", "can", "has", "have", "not", "but",
     }
     query_terms = [t for t in query_lower.split() if len(t) >= 2 and t not in stop_words]
-    logger.info(f"Image search query terms (after stop word filter): {query_terms}")
 
-    scored = []
+    # score CLIP candidates by image_path
+    scored_by_path: dict[str, dict] = {}
     for meta, dist in zip(results["metadatas"][0], results["distances"][0]):
         clip_score = max(0.0, 1.0 - dist)
         page_text = meta.get("page_text", "").lower()
 
-        # Boost: fraction of query terms found in the page text
         if query_terms and page_text:
             matches = sum(1 for t in query_terms if t in page_text)
             text_boost = matches / len(query_terms)
         else:
             text_boost = 0.0
 
-        # Hybrid: 40% CLIP + 60% text match (text is more reliable for documents)
         hybrid_score = 0.4 * clip_score + 0.6 * text_boost
-
-        scored.append({
+        img_path = meta.get("image_path", "")
+        scored_by_path[img_path] = {
             "meta": meta,
-            "clip_score": round(clip_score, 4),
-            "text_boost": round(text_boost, 4),
-            "hybrid_score": round(hybrid_score, 4),
-        })
+            "score": round(hybrid_score, 4),
+            "source": "clip",
+        }
 
-    scored.sort(key=lambda x: x["hybrid_score"], reverse=True)
+    # ── 2) Text description search ────────────────────────────────
+    try:
+        desc_embedding = embeddings.embed_query(req.query)
+        desc_results = store.search_text_filtered(
+            desc_embedding,
+            n_results=req.top_k * 2,
+            where={"type": "image_description"},
+        )
+        for meta, dist in zip(desc_results["metadatas"][0], desc_results["distances"][0]):
+            desc_score = max(0.0, 1.0 - dist)
+            img_path = meta.get("image_path", "")
+            # Description match wins over CLIP if it scores higher
+            existing = scored_by_path.get(img_path)
+            if not existing or desc_score > existing["score"]:
+                scored_by_path[img_path] = {
+                    "meta": meta,
+                    "score": round(desc_score, 4),
+                    "source": "description",
+                }
+    except Exception:
+        logger.exception("Description-based image search failed, using CLIP only")
+
+    # ── 3) Merge, sort, return top-k ──────────────────────────────
+    ranked = sorted(scored_by_path.values(), key=lambda x: x["score"], reverse=True)
 
     image_results = []
-    for s in scored[: req.top_k]:
+    for s in ranked[: req.top_k]:
         image_path = Path(IMAGES_DIR) / s["meta"]["image_path"]
         if not image_path.exists():
             logger.warning(f"Image not found: {image_path}")
@@ -295,12 +314,11 @@ def search_images(req: ImageSearchRequest):
             "file_name": s["meta"]["file_name"],
             "page": s["meta"]["page"],
             "image_b64": b64,
-            "score": s["hybrid_score"],
+            "score": s["score"],
         })
 
     logger.info(
         f"Image search for {req.query!r}: {len(image_results)} images, "
-        f"hybrid_scores={[r['score'] for r in image_results]}, "
-        f"details={[(s['clip_score'], s['text_boost']) for s in scored[:req.top_k]]}"
+        f"scores={[(r['score'], s['source']) for r, s in zip(image_results, ranked[:req.top_k])]}"
     )
     return {"image_results": image_results}
