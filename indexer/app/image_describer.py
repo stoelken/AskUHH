@@ -13,11 +13,10 @@ logger = logging.getLogger(__name__)
 _client: httpx.Client | None = None
 
 _PROMPT = (
-    "Beschreibe dieses Bild aus einem Dokument detailliert auf Deutsch. "
-    "Nenne den Typ des Bildes (z.B. Tabelle, Balkendiagramm, Liniendiagramm, "
-    "Flussdiagramm, Tortendiagramm, Screenshot, Foto, Schema, etc.). "
-    "Beschreibe alle sichtbaren Daten, Zahlen, Beschriftungen, Achsen und Legenden. "
-    "Erkläre das Thema und die Kernaussage des Bildes."
+    "Describe this document image concisely. "
+    "State the type (table, bar chart, line chart, flowchart, pie chart, diagram, etc.). "
+    "List all visible data, numbers, labels, axes, and legends. "
+    "State the topic and key takeaway."
 )
 
 
@@ -42,6 +41,10 @@ def describe_image(img: Image.Image) -> str:
             "prompt": _PROMPT,
             "images": [b64],
             "stream": False,
+            "options": {
+                "num_predict": 256,
+                "temperature": 0.2,
+            },
         },
     )
     resp.raise_for_status()
