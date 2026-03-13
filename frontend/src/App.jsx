@@ -44,7 +44,7 @@ export default function App() {
       handleAbort()
     }
     setQueryError(null)
-    setMessages((m) => m.slice(0, Math.max(0, m.length - 6)))
+    setMessages([])
   }
 
   // Speichere die letzten N Nachrichten bei Änderungen
