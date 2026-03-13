@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import math
@@ -6,6 +7,7 @@ from pathlib import Path
 from typing import List
 
 import chromadb
+import fitz
 import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -104,7 +106,7 @@ class UploadResponse(BaseModel):
 
 class HighlightRequest(BaseModel):
     filename: str
-    chunks: List[dict]  
+    chunks: List[dict]
 
 @app.get("/health")
 def health():
@@ -186,6 +188,7 @@ def delete_document(filename: str):
     except Exception as e:
         logger.error("Failed to delete %s: %s", safe_name, e, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to delete document.")
+
 
 @app.post("/ingest", response_model=IngestResponse)
 def ingest():
@@ -305,7 +308,7 @@ def _retrieve_chunks(question: str) -> list:
     """Retrieval + sequential reranking."""
     results = chroma_collection.query(
         query_embeddings=[embed_query(question)],
-        n_results=min(RERANK_CANDIDATES, chroma_collection.count()),
+        n_results=max(1, min(RERANK_CANDIDATES, chroma_collection.count() - 1)),
         include=["documents", "metadatas", "distances"],
     )
     candidates = [
@@ -325,6 +328,49 @@ def _retrieve_chunks(question: str) -> list:
         question, candidates, OLLAMA_HOST, RERANK_MODEL, TOP_K,
         client=http_client,
     )
+
+
+def extract_page_images(pdf_path: str, page_num: int) -> list[str]:
+    """
+    Extract all graphical regions from a page:
+    1. cluster_drawings() — vector graphics, SVGs, charts (primary)
+    2. get_images()       — XObject embedded raster images (fallback)
+    """
+    doc = fitz.open(pdf_path)
+    page = doc[page_num - 1]
+    b64_images = []
+    seen_rects = []
+
+    def is_duplicate(rect):
+        for seen in seen_rects:
+            if abs(rect.x0 - seen.x0) < 10 and abs(rect.y0 - seen.y0) < 10:
+                return True
+        return False
+
+    def crop_and_add(rect, source):
+        if rect.is_empty or rect.get_area() < 500:
+            return
+        if is_duplicate(rect):
+            return
+        seen_rects.append(rect)
+        pix = page.get_pixmap(dpi=150, clip=rect)
+        b64_images.append(base64.b64encode(pix.tobytes("png")).decode())
+        logger.info(f"  [{source}] image at {list(rect)} from {pdf_path} p{page_num}")
+
+    # 1) Vector graphics, SVG, charts
+    for rect in page.cluster_drawings():
+        crop_and_add(rect, "drawing_cluster")
+
+    # 2) Embedded raster images
+    for img_info in page.get_images(full=True):
+        try:
+            bbox = page.get_image_bbox(img_info)
+            crop_and_add(bbox, "xobject")
+        except Exception:
+            pass
+
+    doc.close()
+    return b64_images
 
 
 def _build_prompt(question: str, chunks: list) -> str:
@@ -418,7 +464,6 @@ def _strip_think_content(state: dict, token: str) -> str:
         if state["in_think"]:
             end_idx = low.find("</think>")
             if end_idx == -1:
-                # Keep a small tail so split closing tags can be recognized later.
                 keep = len("</think>") - 1
                 if len(buf) > keep:
                     state["buffer"] = buf[-keep:]
@@ -429,7 +474,6 @@ def _strip_think_content(state: dict, token: str) -> str:
 
         start_idx = low.find("<think>")
         if start_idx == -1:
-            # Emit everything except a small tail for split opening tags.
             keep = len("<think>") - 1
             if len(buf) <= keep:
                 break
@@ -443,6 +487,7 @@ def _strip_think_content(state: dict, token: str) -> str:
         state["in_think"] = True
 
     return "".join(out)
+
 
 def _generate_followups(question: str, answer: str, chunks: list) -> list:
     """Generate 3 contextual follow-up questions via Ollama with enforced JSON output."""
@@ -489,7 +534,6 @@ def _generate_followups(question: str, answer: str, chunks: list) -> list:
 
     parsed = json.loads(raw)
 
-    # Accept both {"questions": [...]} and plain [...]
     if isinstance(parsed, list):
         items = parsed
     elif isinstance(parsed, dict):
@@ -501,6 +545,7 @@ def _generate_followups(question: str, answer: str, chunks: list) -> list:
         q.strip() for q in items
         if isinstance(q, str) and q.strip()
     ][:3]
+
 
 @app.post("/query/stream")
 def query_stream(req: QueryRequest):
@@ -535,6 +580,19 @@ def query_stream(req: QueryRequest):
         for name in pdf_names
     ]
 
+    # Extract image blocks from retrieved pages
+    all_images = []
+    seen_pages = set()
+    for c in chunks:
+        key = (c["file"], c["page"])
+        if key in seen_pages:
+            continue
+        seen_pages.add(key)
+        pdf_path = Path(DOCS_DIR) / c["file"]
+        all_images.extend(extract_page_images(str(pdf_path), c["page"]))
+
+    logger.info(f"Debug: image_count={len(all_images)}")
+
     def event_generator():
         # 1) Send enriched sources with chunk data as the first event
         yield f"event: sources\ndata: {json.dumps(sources_data)}\n\n"
@@ -553,6 +611,7 @@ def query_stream(req: QueryRequest):
                     "stream":       True,
                     "logprobs":     True,
                     "top_logprobs": 20,
+                    "images":       all_images,
                     "options": {"temperature": 0.1, "num_predict": 1024},
                 },
             ) as resp:
@@ -590,18 +649,17 @@ def query_stream(req: QueryRequest):
             logger.error(f"Streaming failed: {e}", exc_info=True)
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
 
-        # 3) Signal completion with aggregated confidence metrics
+        # 3) Signal completion with logprobs + debug images
         avg_probability = None
         numeric_probs = [t["probability"] for t in token_probs if isinstance(t.get("probability"), (int, float))]
         if numeric_probs:
-            avg_probability = round(
-                sum(numeric_probs) / len(numeric_probs),
-                1,
-            )
+            avg_probability = round(sum(numeric_probs) / len(numeric_probs), 1)
+
         done_payload = {
             "logprobs": token_probs,
             "avg_probability": avg_probability,
             "token_count": len(token_probs),
+            "debug_images": all_images,
         }
         yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
 

@@ -1,7 +1,7 @@
 import os
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-LLM_MODEL   = os.getenv("LLM_MODEL",  "qwen3:8b")
+LLM_MODEL   = os.getenv("LLM_MODEL",  "qwen3-vl:8b-instruct")
 
 DOCS_DIR   = os.getenv("DOCS_DIR",   "/data/docs")
 CHROMA_DIR = os.getenv("CHROMA_DIR", "/data/chroma_db")
