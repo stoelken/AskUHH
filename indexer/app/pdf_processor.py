@@ -18,7 +18,7 @@ def extract_images_from_pdf(
     """Extract all images from a PDF, save to disk, return metadata + PIL images.
 
     Returns list of dicts:
-      {id, file_name, page, image_path, pil_image}
+      {id, file_name, page, image_path, pil_image, page_text}
     """
     stem = Path(filename).stem
     out_dir = Path(IMAGES_DIR) / stem
@@ -29,6 +29,7 @@ def extract_images_from_pdf(
 
     for page_num in range(len(doc)):
         page = doc[page_num]
+        page_text = page.get_text().strip()
         seen_rects = []
 
         def is_duplicate(rect):
@@ -60,6 +61,7 @@ def extract_images_from_pdf(
                 "page": page_num + 1,
                 "image_path": rel_path,
                 "pil_image": pil_img,
+                "page_text": page_text,
             })
             logger.info(f"  [{source}] {rel_path}")
 
