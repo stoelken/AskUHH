@@ -219,6 +219,7 @@ def search_text(req: TextSearchRequest):
 @app.post("/search/images")
 def search_images(req: ImageSearchRequest):
     """Hybrid image search: CLIP visual similarity + page text match boost."""
+    logger.info(f"Image search request: query={req.query!r}, top_k={req.top_k}")
     if store.image_count() == 0:
         return {"image_results": []}
 
@@ -228,7 +229,18 @@ def search_images(req: ImageSearchRequest):
     results = store.search_images(query_embedding, n_results=n_candidates)
 
     query_lower = req.query.lower()
-    query_terms = [t for t in query_lower.split() if len(t) >= 2]
+    # Filter stop words — only meaningful terms should drive the text boost
+    stop_words = {
+        "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "einem",
+        "einen", "und", "oder", "aber", "für", "von", "mit", "bei", "nach", "aus",
+        "auf", "ist", "sind", "was", "wie", "wer", "wann", "wo", "ich", "du", "er",
+        "sie", "wir", "ihr", "sich", "nicht", "auch", "noch", "nur", "wenn", "als",
+        "kann", "wird", "hat", "haben", "sein", "werden", "gibt", "welche", "welcher",
+        "the", "is", "are", "was", "were", "for", "and", "with", "this", "that",
+        "from", "what", "how", "who", "can", "has", "have", "not", "but",
+    }
+    query_terms = [t for t in query_lower.split() if len(t) >= 2 and t not in stop_words]
+    logger.info(f"Image search query terms (after stop word filter): {query_terms}")
 
     scored = []
     for meta, dist in zip(results["metadatas"][0], results["distances"][0]):
