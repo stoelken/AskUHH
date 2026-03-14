@@ -1,0 +1,27 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: askuhh-ollama
+    environment:
+      - CUDA_VISIBLE_DEVICES=1,3
+    ports:
+      - '${OLLAMA_PORT:-11435}:11434'
+    volumes:
+      - ollama_models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ['CMD-SHELL', 'pgrep ollama > /dev/null || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  ollama_models:
