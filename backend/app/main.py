@@ -1,4 +1,3 @@
-import base64
 import json
 import logging
 import math
@@ -6,38 +5,28 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List
 
-import chromadb
-import fitz
 import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, Response
-from langchain_community.document_loaders import PyMuPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 from langdetect import detect
 
-from .config import (
-    CHROMA_DIR, CHUNK_OVERLAP, CHUNK_SIZE, COLLECTION,
-    DOCS_DIR, EMBED_MODEL, LLM_MODEL, OLLAMA_HOST, RERANK_CANDIDATES,
-    RERANK_MODEL, SYSTEM_PROMPT, TOP_K,
-)
-from .embeddings import OllamaEmbeddingFunction, embed_query
-from . import embeddings
-from .reranking import rerank
+from .config import DOCS_DIR, EMBED_MODEL, LLM_MODEL, OLLAMA_HOST, SYSTEM_PROMPT, TOP_K_IMAGES
+from .indexer import service as indexer
+
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-chroma_collection = None
 http_client: httpx.Client = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global chroma_collection, http_client
+    global http_client
 
     http_client = httpx.Client(
         timeout=httpx.Timeout(connect=10, read=180, write=30, pool=180),
@@ -48,28 +37,15 @@ async def lifespan(app: FastAPI):
         ),
     )
 
-    # Share the client with the embeddings module
-    embeddings.init(http_client)
-
-    db = chromadb.PersistentClient(path=CHROMA_DIR)
-    chroma_collection = db.get_or_create_collection(
-        name=COLLECTION,
-        embedding_function=OllamaEmbeddingFunction(),
-        metadata={"hnsw:space": "cosine"},
-    )
-    logger.info(f"Embedding model: {EMBED_MODEL} via Ollama")
-    logger.info(f"ChromaDB ready. Indexed chunks: {chroma_collection.count()}")
-    logger.info(
-        f"Reranking: pointwise via {RERANK_MODEL}, "
-        f"candidates={RERANK_CANDIDATES}"
-    )
+    indexer.init(http_client)
+    logger.info(f"Ollama host: {OLLAMA_HOST}")
 
     yield
 
     http_client.close()
     logger.info("Shutting down.")
 
-app = FastAPI(title="University RAG API", lifespan=lifespan)
+app = FastAPI(title="AskUHH Backend", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -85,6 +61,7 @@ class QueryRequest(BaseModel):
 class StatusResponse(BaseModel):
     pdf_count:   int
     chunk_count: int
+    image_count: int = 0
     documents:   List[str]
     indexed_documents: List[str]
     needs_index: bool
@@ -140,29 +117,34 @@ def highlight_pdf(req: HighlightRequest):
 @app.get("/status", response_model=StatusResponse)
 def status():
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
-    chunk_count = chroma_collection.count()
-
+    text_count = 0
+    img_count = 0
     indexed_documents = []
-    if chunk_count > 0:
-        try:
-            meta_result = chroma_collection.get(include=["metadatas"])
-            metas = meta_result.get("metadatas", []) if meta_result else []
+
+    try:
+        st = indexer.get_status() or {}
+        text_count = int(st.get("text_count", 0) or 0)
+        img_count = int(st.get("image_count", 0) or 0)
+
+        indexed_from_status = st.get("indexed_documents", [])
+        if isinstance(indexed_from_status, list):
             indexed_documents = sorted(
                 {
-                    m.get("file_name")
-                    for m in metas
-                    if isinstance(m, dict) and m.get("file_name")
+                    str(name).strip()
+                    for name in indexed_from_status
+                    if str(name).strip()
                 }
             )
-        except Exception:
-            logger.exception("Failed to determine indexed documents from Chroma metadata")
+    except Exception:
+        logger.exception("Failed to read index status")
 
-    current_documents = sorted([f.name for f in pdf_files])
+    current_documents = sorted(f.name for f in pdf_files)
     needs_index = bool(current_documents) and set(current_documents) != set(indexed_documents)
 
     return StatusResponse(
         pdf_count=len(pdf_files),
-        chunk_count=chunk_count,
+        chunk_count=text_count,
+        image_count=img_count,
         documents=current_documents,
         indexed_documents=indexed_documents,
         needs_index=needs_index,
@@ -192,69 +174,24 @@ def delete_document(filename: str):
 
 @app.post("/ingest", response_model=IngestResponse)
 def ingest():
-    """Load all PDFs, split into chunks, embed, and store in ChromaDB."""
+    """Upload all local PDFs to the indexer for text + image indexing."""
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
 
     if not pdf_files:
         raise HTTPException(status_code=400, detail=f"No PDF files found in {DOCS_DIR}.")
 
-    # Clearing
-    existing_ids = chroma_collection.get()["ids"]
-    if existing_ids:
-        chroma_collection.delete(ids=existing_ids)
-        logger.info(f"Cleared {len(existing_ids)} existing chunks before re-indexing.")
-
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", ". ", "! ", "? ", "; ", " "],
-        length_function=len,
-    )
-
-    all_ids:   List[str]  = []
-    all_texts: List[str]  = []
-    all_metas: List[dict] = []
-
     try:
-        for pdf_path in pdf_files:
-            logger.info(f"Extracting: {pdf_path.name}")
-            for page_doc in PyMuPDFLoader(str(pdf_path)).load():
-                text     = page_doc.page_content.strip()
-                page_num = int(page_doc.metadata.get("page", 0)) + 1
-
-                if not text:
-                    continue
-
-                for idx, chunk in enumerate(splitter.split_text(text)):
-                    chunk = chunk.strip()
-                    if len(chunk) < 40:
-                        continue
-                    all_ids.append(f"{pdf_path.stem}__p{page_num:04d}__c{idx:03d}")
-                    all_texts.append(chunk)
-                    all_metas.append({"file_name": pdf_path.name, "page": page_num})
-
-        if not all_texts:
-            raise HTTPException(status_code=400, detail="PDFs found but no text could be extracted.")
-
-        logger.info(f"Storing {len(all_texts)} chunks in ChromaDB...")
-        BATCH = 64
-        for i in range(0, len(all_texts), BATCH):
-            chroma_collection.upsert(
-                ids=all_ids[i:i+BATCH],
-                documents=all_texts[i:i+BATCH],
-                metadatas=all_metas[i:i+BATCH],
-            )
-            logger.info(f"  {min(i+BATCH, len(all_texts))} / {len(all_texts)} chunks stored")
+        result = indexer.ingest_pdfs(pdf_files)
+        text_count = result.get("text_count", 0)
+        image_count = result.get("image_count", 0)
 
         return IngestResponse(
             success=True,
-            message=f"Indexed {len(pdf_files)} PDF(s) into {len(all_ids)} chunks.",
-            pdf_count=len(pdf_files),
-            chunk_count=len(all_ids),
+            message=f"Indexed {result['pdf_count']} PDF(s): {text_count} text chunks + {image_count} images.",
+            pdf_count=result["pdf_count"],
+            chunk_count=text_count,
         )
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Ingest failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -305,72 +242,8 @@ async def upload_documents(files: List[UploadFile] = File(...)):
 
 
 def _retrieve_chunks(question: str) -> list:
-    """Retrieval + sequential reranking."""
-    results = chroma_collection.query(
-        query_embeddings=[embed_query(question)],
-        n_results=max(1, min(RERANK_CANDIDATES, chroma_collection.count() - 1)),
-        include=["documents", "metadatas", "distances"],
-    )
-    candidates = [
-        {
-            "text":  doc,
-            "file":  meta.get("file_name", "Unknown"),
-            "page":  int(meta.get("page", 0)),
-            "score": round(max(0.0, 1.0 - dist), 4),
-        }
-        for doc, meta, dist in zip(
-            results["documents"][0],
-            results["metadatas"][0],
-            results["distances"][0],
-        )
-    ]
-    return rerank(
-        question, candidates, OLLAMA_HOST, RERANK_MODEL, TOP_K,
-        client=http_client,
-    )
-
-
-def extract_page_images(pdf_path: str, page_num: int) -> list[str]:
-    """
-    Extract all graphical regions from a page:
-    1. cluster_drawings() — vector graphics, SVGs, charts (primary)
-    2. get_images()       — XObject embedded raster images (fallback)
-    """
-    doc = fitz.open(pdf_path)
-    page = doc[page_num - 1]
-    b64_images = []
-    seen_rects = []
-
-    def is_duplicate(rect):
-        for seen in seen_rects:
-            if abs(rect.x0 - seen.x0) < 10 and abs(rect.y0 - seen.y0) < 10:
-                return True
-        return False
-
-    def crop_and_add(rect, source):
-        if rect.is_empty or rect.get_area() < 500:
-            return
-        if is_duplicate(rect):
-            return
-        seen_rects.append(rect)
-        pix = page.get_pixmap(dpi=150, clip=rect)
-        b64_images.append(base64.b64encode(pix.tobytes("png")).decode())
-        logger.info(f"  [{source}] image at {list(rect)} from {pdf_path} p{page_num}")
-
-    # 1) Vector graphics, SVG, charts
-    for rect in page.cluster_drawings():
-        crop_and_add(rect, "drawing_cluster")
-
-    # 2) Embedded raster images
-    for img_info in page.get_images(full=True):
-        try:
-            bbox = page.get_image_bbox(img_info)
-            crop_and_add(bbox, "xobject")
-        except Exception:
-            pass
-
-    doc.close()
-    return b64_images
+    """Retrieve chunks using the new indexer-based text search."""
+    return indexer.search_text(question)
 
 
 def _build_prompt(question: str, chunks: list) -> str:
@@ -550,16 +423,17 @@ def _generate_followups(question: str, answer: str, chunks: list) -> list:
 @app.post("/query/stream")
 def query_stream(req: QueryRequest):
     """SSE streaming endpoint: sends sources first, then LLM tokens, then done with logprobs."""
-    if chroma_collection.count() == 0:
-        raise HTTPException(status_code=400, detail="No documents indexed yet. Call /ingest first.")
-
     try:
         merged_question = _compose_question_with_history(req.question, req.history)
         chunks = _retrieve_chunks(merged_question)
-        prompt = _build_prompt(merged_question, chunks)
     except Exception as e:
         logger.error(f"Retrieval failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+    if not chunks:
+        raise HTTPException(status_code=400, detail="No documents indexed yet. Call /ingest first.")
+
+    prompt = _build_prompt(merged_question, chunks)
 
     # Build sources data: group chunks by filename, keep top 3 per file
     sources_map = {}
@@ -580,16 +454,18 @@ def query_stream(req: QueryRequest):
         for name in pdf_names
     ]
 
-    # Extract image blocks from retrieved pages
+    # Get top images via description search
     all_images = []
-    seen_pages = set()
-    for c in chunks:
-        key = (c["file"], c["page"])
-        if key in seen_pages:
-            continue
-        seen_pages.add(key)
-        pdf_path = Path(DOCS_DIR) / c["file"]
-        all_images.extend(extract_page_images(str(pdf_path), c["page"]))
+    try:
+        image_results = indexer.search_images(merged_question, TOP_K_IMAGES)
+        all_images = [img["image_b64"] for img in image_results if isinstance(img, dict) and img.get("image_b64")]
+        logger.info(
+            "Image search: %s images, scores=%s",
+            len(all_images),
+            [img.get("score") for img in image_results if isinstance(img, dict)],
+        )
+    except Exception as e:
+        logger.warning(f"Image retrieval from indexer failed: {e}")
 
     logger.info(f"Debug: image_count={len(all_images)}")
 
@@ -600,6 +476,7 @@ def query_stream(req: QueryRequest):
         # 2) Stream LLM tokens from Ollama, collecting logprobs
         token_probs = []
         think_state = {"buffer": "", "in_think": False}
+        answer_parts: list[str] = []
         try:
             with http_client.stream(
                 "POST",
@@ -620,16 +497,20 @@ def query_stream(req: QueryRequest):
                     if not line:
                         continue
                     chunk_data = json.loads(line)
+
+                    token = chunk_data.get("response", "")
+                    if token:
+                        visible = _strip_think_content(think_state, token)
+                        if visible:
+                            yield f"event: token\ndata: {json.dumps(visible)}\n\n"
+                            answer_parts.append(visible)
+
                     for token_data in chunk_data.get("logprobs", []):
                         generated_token, probability, alternatives = _extract_actual_token_probability(token_data)
                         if not generated_token:
                             continue
-                        visible_token = _strip_think_content(think_state, generated_token)
-                        if not visible_token:
-                            continue
-                        yield f"event: token\ndata: {json.dumps(visible_token)}\n\n"
                         token_probs.append({
-                            "token": visible_token,
+                            "token": generated_token,
                             "probability": probability,
                             "alternatives": alternatives,
                         })
@@ -639,11 +520,7 @@ def query_stream(req: QueryRequest):
                             tail = think_state["buffer"]
                             think_state["buffer"] = ""
                             yield f"event: token\ndata: {json.dumps(tail)}\n\n"
-                            token_probs.append({
-                                "token": tail,
-                                "probability": None,
-                                "alternatives": [],
-                            })
+                            answer_parts.append(tail)
                         break
         except Exception as e:
             logger.error(f"Streaming failed: {e}", exc_info=True)
@@ -664,7 +541,7 @@ def query_stream(req: QueryRequest):
         yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
 
         # 4) Generate follow-up questions
-        full_answer = "".join(t["token"] for t in token_probs if t.get("token"))
+        full_answer = "".join(answer_parts)
         try:
             followups = _generate_followups(req.question, full_answer, chunks)
             if followups:
