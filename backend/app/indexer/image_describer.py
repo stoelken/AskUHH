@@ -32,7 +32,6 @@ def _pil_to_base64(img: Image.Image) -> str:
 
 
 def describe_image(img: Image.Image) -> str:
-    """Send a single image to the Ollama VLM and return a text description."""
     b64 = _pil_to_base64(img)
     resp = _client.post(
         f"{OLLAMA_HOST}/api/generate",
@@ -52,11 +51,6 @@ def describe_image(img: Image.Image) -> str:
 
 
 def describe_images(entries: List[dict]) -> List[str]:
-    """Generate text descriptions for a list of image entries.
-
-    Each entry must have a 'pil_image' key with a PIL Image.
-    Returns a list of description strings (same order as entries).
-    """
     descriptions = []
     for i, entry in enumerate(entries):
         img_id = entry.get("id", f"image_{i}")

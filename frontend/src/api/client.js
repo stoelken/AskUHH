@@ -12,19 +12,12 @@ async function request(path, options = {}) {
   return res.json()
 }
 
-/**
- * Stream a query via SSE.
- * @param {string} question
- * @param {object} callbacks
- * @param {function} callbacks.onSources    - called once with sources array
- * @param {function} callbacks.onToken      - called per token string
- * @param {function} callbacks.onDone       - called when stream finishes
- * @param {function} callbacks.onError      - called on error
- * @param {function} callbacks.onFollowups  - called with follow-up questions array
- * @param {AbortSignal} [signal]            - optional abort signal
- * @param {string[]} [history]              - prior user questions
- */
-async function queryStream(question, { onSources, onToken, onDone, onError, onFollowups }, signal, history = []) {
+async function queryStream(
+  question,
+  { onSources, onToken, onDone, onError, onFollowups },
+  signal,
+  history = []
+) {
   const res = await fetch(`${BASE}/query/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -47,9 +40,8 @@ async function queryStream(question, { onSources, onToken, onDone, onError, onFo
 
     buffer += decoder.decode(value, { stream: true })
 
-    // Parse SSE events from the buffer
     const parts = buffer.split('\n\n')
-    buffer = parts.pop() // keep the incomplete part
+    buffer = parts.pop()
 
     for (const part of parts) {
       if (!part.trim()) continue
@@ -87,9 +79,7 @@ async function queryStream(question, { onSources, onToken, onDone, onError, onFo
             onError?.(new Error(parsed))
             break
         }
-      } catch {
-        // ignore malformed JSON
-      }
+      } catch {}
     }
   }
 }
@@ -117,12 +107,6 @@ export const api = {
   deleteDocument: (filename) =>
     request(`/documents/${encodeURIComponent(filename)}`, {
       method: 'DELETE',
-    }),
-  query: (question, signal) =>
-    request('/query', {
-      method: 'POST',
-      body: JSON.stringify({ question }),
-      ...(signal ? { signal } : {}),
     }),
   queryStream,
 }

@@ -61,7 +61,6 @@ def search_text_filtered(
     n_results: int,
     where: dict,
 ) -> dict:
-    """Search text collection with a metadata filter (e.g. type == 'image_description')."""
     count = _text_collection.count()
     if count == 0:
         return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
@@ -95,7 +94,6 @@ def _get_all_fallback(
     n: int,
     include_documents: bool,
 ) -> dict:
-    """Brute-force cosine similarity when HNSW can't handle the query."""
     include = ["metadatas", "embeddings"]
     if include_documents:
         include.append("documents")
