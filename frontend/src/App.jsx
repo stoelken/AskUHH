@@ -6,14 +6,12 @@ import { api } from './api/client'
 import { Button } from './components/ui/button'
 import { MessageItem } from './components/ui/message-item'
 
-// Anzahl der gespeicherten Nachrichten (änderbar)
 const MAX_STORED_MESSAGES = 6
 const STORAGE_KEY = 'askuhh_chat_history'
 
 export default function App() {
   const { status, loading: statusLoading, error: statusError, refresh } = useStatus()
   const [messages, setMessages] = useState(() => {
-    // Lade gespeicherte Nachrichten beim ersten Render
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
       return stored ? JSON.parse(stored) : []
@@ -47,7 +45,6 @@ export default function App() {
     setMessages([])
   }
 
-  // Speichere die letzten N Nachrichten bei Änderungen
   useEffect(() => {
     if (messages.length === 0) {
       localStorage.removeItem(STORAGE_KEY)
@@ -61,7 +58,6 @@ export default function App() {
         avgProbability: msg.avgProbability ?? null,
         logprobs: msg.logprobs ?? [],
         followups: msg.followups ?? [],
-        // streaming-Flag nicht speichern
       }))
       localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore))
     } catch (e) {
