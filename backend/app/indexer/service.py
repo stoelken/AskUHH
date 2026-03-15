@@ -49,7 +49,6 @@ def ingest_pdfs(pdf_paths: List[Path]) -> dict:
         filename = pdf_path.name
         logger.info(f"Processing {filename} ({len(pdf_bytes)} bytes)")
 
-        # ── Text extraction + chunking ────────────────────────────
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         for page_num in range(len(doc)):
             text = doc[page_num].get_text().strip()
@@ -66,7 +65,6 @@ def ingest_pdfs(pdf_paths: List[Path]) -> dict:
                 text_metas.append({"file_name": filename, "page": page})
         doc.close()
 
-        # ── Image extraction + VLM descriptions ──────────────────
         from .pdf_processor import extract_images_from_pdf
         image_entries = extract_images_from_pdf(pdf_bytes, filename)
         if image_entries:
@@ -85,7 +83,6 @@ def ingest_pdfs(pdf_paths: List[Path]) -> dict:
                 })
                 image_count += 1
 
-    # ── Embed all text via Ollama and store ───────────────────────
     if text_docs:
         logger.info(f"Embedding {len(text_docs)} text chunks via Ollama...")
         BATCH = 64

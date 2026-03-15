@@ -48,7 +48,6 @@ export function PdfModal({ filename, trigger, chunks = [] }) {
 
     fetchPdf()
 
-    // Cleanup: revoke blob URL on unmount or close
     return () => {
       if (pdfUrl?.startsWith('blob:')) {
         URL.revokeObjectURL(pdfUrl)

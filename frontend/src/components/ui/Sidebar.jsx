@@ -33,7 +33,10 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
     setUploadMsg(null)
     try {
       const res = await api.deleteDocument(filename)
-      setUploadMsg({ ok: true, text: `${res.message} Click Index / Re-index to refresh embeddings.` })
+      setUploadMsg({
+        ok: true,
+        text: `${res.message} Click Index / Re-index to refresh embeddings.`,
+      })
       onStatusRefresh()
     } catch (e) {
       setUploadMsg({ ok: false, text: e.message })
@@ -97,7 +100,6 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
 
   return (
     <aside className={`sidebar ${isOpen ? 'sidebar--open' : ''}`}>
-      {/* Stats */}
       <div className="stat-grid">
         <div className="stat-card">
           <FileText size={14} />
@@ -111,7 +113,6 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
         </div>
       </div>
 
-      {/* Ingest button */}
       <button
         className={`ingest-btn ${ingesting ? 'loading' : ''}`}
         onClick={handleIngest}
@@ -150,7 +151,6 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
         <div className={`ingest-msg ${uploadMsg.ok ? 'ok' : 'err'}`}>{uploadMsg.text}</div>
       )}
 
-      {/* Document list */}
       {status?.documents?.length > 0 && (
         <div className="doc-list">
           <button className="doc-list-toggle" onClick={() => setDocsOpen((v) => !v)}>

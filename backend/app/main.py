@@ -100,7 +100,6 @@ def serve_pdf(filename: str):
 
 @app.post("/pdf/highlight")
 def highlight_pdf(req: HighlightRequest):
-    """Highlight specific chunks in a PDF and return modified PDF with annotations."""
     pdf_path = Path(DOCS_DIR) / req.filename
     if not pdf_path.exists() or pdf_path.suffix.lower() != ".pdf":
         raise HTTPException(status_code=404, detail="PDF not found")
@@ -174,7 +173,6 @@ def delete_document(filename: str):
 
 @app.post("/ingest", response_model=IngestResponse)
 def ingest():
-    """Upload all local PDFs to the indexer for text + image indexing."""
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
 
     if not pdf_files:
@@ -199,7 +197,6 @@ def ingest():
 
 @app.post("/documents/upload", response_model=UploadResponse)
 async def upload_documents(files: List[UploadFile] = File(...)):
-    """Upload multiple PDF files into DOCS_DIR; indexing is triggered separately."""
     docs_path = Path(DOCS_DIR)
     docs_path.mkdir(parents=True, exist_ok=True)
 
@@ -239,11 +236,6 @@ async def upload_documents(files: List[UploadFile] = File(...)):
         uploaded_files=uploaded_files,
         skipped_files=skipped_files,
     )
-
-
-def _retrieve_chunks(question: str) -> list:
-    """Retrieve chunks using the new indexer-based text search."""
-    return indexer.search_text(question)
 
 
 def _build_prompt(question: str, chunks: list) -> str:
@@ -293,7 +285,6 @@ def _compose_question_with_history(question: str, history: List[str]) -> str:
 
 
 def _extract_actual_token_probability(token_data: dict) -> tuple[str, float | None, list]:
-    """Return the generated token, its probability in %, and alternative candidates."""
     generated_token = token_data.get("token", "")
     top = token_data.get("top_logprobs", [])
 
@@ -326,7 +317,6 @@ def _extract_actual_token_probability(token_data: dict) -> tuple[str, float | No
 
 
 def _strip_think_content(state: dict, token: str) -> str:
-    """Strip <think>...</think> blocks from streamed text, also when tags are chunk-split."""
     state["buffer"] += token
     out = []
 
@@ -363,7 +353,6 @@ def _strip_think_content(state: dict, token: str) -> str:
 
 
 def _generate_followups(question: str, answer: str, chunks: list) -> list:
-    """Generate 3 contextual follow-up questions via Ollama with enforced JSON output."""
     try:
         lang = detect(question)
     except Exception:
@@ -420,22 +409,7 @@ def _generate_followups(question: str, answer: str, chunks: list) -> list:
     ][:3]
 
 
-@app.post("/query/stream")
-def query_stream(req: QueryRequest):
-    """SSE streaming endpoint: sends sources first, then LLM tokens, then done with logprobs."""
-    try:
-        merged_question = _compose_question_with_history(req.question, req.history)
-        chunks = _retrieve_chunks(merged_question)
-    except Exception as e:
-        logger.error(f"Retrieval failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-    if not chunks:
-        raise HTTPException(status_code=400, detail="No documents indexed yet. Call /ingest first.")
-
-    prompt = _build_prompt(merged_question, chunks)
-
-    # Build sources data: group chunks by filename, keep top 3 per file
+def _build_sources(chunks: list) -> list:
     sources_map = {}
     for c in chunks:
         if c["file"] not in sources_map:
@@ -446,15 +420,27 @@ def query_stream(req: QueryRequest):
                 "text": c["text"],
                 "score": c["score"],
             })
-
-    # Limit to top 3 files (preserving chunk order)
-    pdf_names = list(sources_map.keys())[:3]
-    sources_data = [
+    return [
         {"filename": name, "chunks": sources_map[name]}
-        for name in pdf_names
+        for name in list(sources_map.keys())[:3]
     ]
 
-    # Get top images via description search
+
+@app.post("/query/stream")
+def query_stream(req: QueryRequest):
+    try:
+        merged_question = _compose_question_with_history(req.question, req.history)
+        chunks = indexer.search_text(merged_question)
+    except Exception as e:
+        logger.error(f"Retrieval failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not chunks:
+        raise HTTPException(status_code=400, detail="No documents indexed yet. Call /ingest first.")
+
+    prompt = _build_prompt(merged_question, chunks)
+    sources_data = _build_sources(chunks)
+
     all_images = []
     try:
         image_results = indexer.search_images(merged_question, TOP_K_IMAGES)
@@ -470,10 +456,8 @@ def query_stream(req: QueryRequest):
     logger.info(f"Debug: image_count={len(all_images)}")
 
     def event_generator():
-        # 1) Send enriched sources with chunk data as the first event
         yield f"event: sources\ndata: {json.dumps(sources_data)}\n\n"
 
-        # 2) Stream LLM tokens from Ollama, collecting logprobs
         token_probs = []
         think_state = {"buffer": "", "in_think": False}
         answer_parts: list[str] = []
@@ -526,11 +510,8 @@ def query_stream(req: QueryRequest):
             logger.error(f"Streaming failed: {e}", exc_info=True)
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
 
-        # 3) Signal completion with logprobs + debug images
-        avg_probability = None
         numeric_probs = [t["probability"] for t in token_probs if isinstance(t.get("probability"), (int, float))]
-        if numeric_probs:
-            avg_probability = round(sum(numeric_probs) / len(numeric_probs), 1)
+        avg_probability = round(sum(numeric_probs) / len(numeric_probs), 1) if numeric_probs else None
 
         done_payload = {
             "logprobs": token_probs,
@@ -540,7 +521,6 @@ def query_stream(req: QueryRequest):
         }
         yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
 
-        # 4) Generate follow-up questions
         full_answer = "".join(answer_parts)
         try:
             followups = _generate_followups(req.question, full_answer, chunks)

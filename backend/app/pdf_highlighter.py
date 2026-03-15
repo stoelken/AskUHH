@@ -7,8 +7,6 @@ logger = logging.getLogger(__name__)
 
 
 def highlight_chunks_in_pdf(pdf_path: str, chunks: List[dict]) -> bytes:
-    """
-    Opens PDF, searches for chunk texts, highlights them, returns modified PDF as bytes."""
     doc = fitz.open(pdf_path)
 
     for chunk in chunks:

@@ -16,7 +16,6 @@ def init(client: httpx.Client) -> None:
 
 
 def embed_texts(texts: List[str]) -> List[List[float]]:
-    """Call Ollama /api/embed and return a list of vectors."""
     resp = _client.post(
         f"{OLLAMA_HOST}/api/embed",
         json={"model": EMBED_MODEL, "input": texts},
@@ -26,5 +25,4 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
 
 
 def embed_query(question: str) -> List[float]:
-    """Embed a single query via Ollama."""
     return embed_texts([question])[0]

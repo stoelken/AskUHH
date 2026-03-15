@@ -105,7 +105,6 @@ export function MessageItem({
         )}
       </div>
 
-      {/* ── Debug images (collapsible) ── */}
       {!isUser && !streaming && (
         <div className="flex flex-col gap-2 w-full">
           <Button
@@ -149,7 +148,6 @@ export function MessageItem({
         </div>
       )}
 
-      {/* ── Sources ── */}
       {!isUser && !streaming && pdfs.length > 0 && (
         <div className="flex flex-col gap-2 w-full">
           <div className="flex items-center gap-2 flex-wrap">
@@ -202,7 +200,6 @@ export function MessageItem({
         </div>
       )}
 
-      {/* ── Follow-up suggestions ── */}
       {showFollowups && followups?.length > 0 && (
         <div className="followup-chips">
           <span className="followup-label">
