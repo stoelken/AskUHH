@@ -14,6 +14,7 @@ import { Button } from './button'
 import { PdfModal, readableTitle } from './PdfModal'
 import { cn } from '@/lib/utils'
 
+// Renders one chat bubble (user or assistant) with sources, images, and follow-ups.
 export function MessageItem({
   role,
   content,
@@ -42,6 +43,7 @@ export function MessageItem({
       }
     }) ?? []
 
+  // Copies assistant text to clipboard.
   const handleCopy = () => {
     navigator.clipboard.writeText(content).then(() => {
       setCopied(true)

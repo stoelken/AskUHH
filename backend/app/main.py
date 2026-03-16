@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 http_client: httpx.Client = None
 
 
+# App startup/shutdown hook: sets shared HTTP client and indexer, then cleans up.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global http_client
@@ -85,11 +86,13 @@ class HighlightRequest(BaseModel):
     filename: str
     chunks: List[dict]
 
+# Quick health check endpoint for containers and uptime checks.
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
+# Serves one PDF file directly from docs storage.
 @app.get("/pdf/{filename}")
 def serve_pdf(filename: str):
     pdf_path = Path(DOCS_DIR) / filename
@@ -98,6 +101,7 @@ def serve_pdf(filename: str):
     return FileResponse(pdf_path, media_type="application/pdf")
 
 
+# Creates a highlighted PDF based on matched chunk text locations.
 @app.post("/pdf/highlight")
 def highlight_pdf(req: HighlightRequest):
     pdf_path = Path(DOCS_DIR) / req.filename
@@ -113,6 +117,7 @@ def highlight_pdf(req: HighlightRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+    # Returns app/index status like files, chunk counts, and model settings.
 @app.get("/status", response_model=StatusResponse)
 def status():
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
@@ -153,6 +158,7 @@ def status():
     )
 
 
+# Deletes a PDF from docs folder after basic safety validation.
 @app.delete("/documents/{filename}")
 def delete_document(filename: str):
     safe_name = Path(filename).name
@@ -171,6 +177,7 @@ def delete_document(filename: str):
         raise HTTPException(status_code=500, detail="Failed to delete document.")
 
 
+    # Runs ingest/indexing over all PDFs currently in the docs directory.
 @app.post("/ingest", response_model=IngestResponse)
 def ingest():
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
@@ -195,6 +202,7 @@ def ingest():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+    # Upload endpoint that stores only valid PDF files in docs storage.
 @app.post("/documents/upload", response_model=UploadResponse)
 async def upload_documents(files: List[UploadFile] = File(...)):
     docs_path = Path(DOCS_DIR)
@@ -238,6 +246,7 @@ async def upload_documents(files: List[UploadFile] = File(...)):
     )
 
 
+# Builds the final LLM prompt from question + retrieved chunks.
 def _build_prompt(question: str, chunks: list) -> str:
     lang = detect(question)
     context = "\n\n---\n\n".join(
@@ -269,6 +278,7 @@ def _build_prompt(question: str, chunks: list) -> str:
     )
 
 
+# Adds recent user questions so follow-up queries keep conversation context.
 def _compose_question_with_history(question: str, history: List[str]) -> str:
     clean_history = [h.strip() for h in history if isinstance(h, str) and h.strip()]
     if not clean_history:
@@ -284,6 +294,7 @@ def _compose_question_with_history(question: str, history: List[str]) -> str:
     )
 
 
+# Converts token logprob data into readable probability values + alternatives.
 def _extract_actual_token_probability(token_data: dict) -> tuple[str, float | None, list]:
     generated_token = token_data.get("token", "")
     top = token_data.get("top_logprobs", [])
@@ -316,6 +327,7 @@ def _extract_actual_token_probability(token_data: dict) -> tuple[str, float | No
     return generated_token, probability, alternatives
 
 
+# Removes hidden <think> parts from model output before streaming to UI.
 def _strip_think_content(state: dict, token: str) -> str:
     state["buffer"] += token
     out = []
@@ -352,6 +364,7 @@ def _strip_think_content(state: dict, token: str) -> str:
     return "".join(out)
 
 
+# Asks the model for 3 short follow-up question suggestions.
 def _generate_followups(question: str, answer: str, chunks: list) -> list:
     try:
         lang = detect(question)
@@ -409,6 +422,7 @@ def _generate_followups(question: str, answer: str, chunks: list) -> list:
     ][:3]
 
 
+# Groups retrieved chunks into compact source objects for the frontend.
 def _build_sources(chunks: list) -> list:
     sources_map = {}
     for c in chunks:
@@ -426,6 +440,7 @@ def _build_sources(chunks: list) -> list:
     ]
 
 
+# Main streaming query endpoint: retrieve, call LLM, and stream SSE events.
 @app.post("/query/stream")
 def query_stream(req: QueryRequest):
     try:
@@ -455,6 +470,7 @@ def query_stream(req: QueryRequest):
 
     logger.info(f"Debug: image_count={len(all_images)}")
 
+    # Generator that pushes sources, tokens, done payload, and follow-ups via SSE.
     def event_generator():
         yield f"event: sources\ndata: {json.dumps(sources_data)}\n\n"
 

@@ -16,6 +16,7 @@ export default defineConfig({
       '/api': {
         target: process.env.VITE_BACKEND_URL || 'http://backend:8000',
         changeOrigin: true,
+        // Strips /api prefix so backend sees the original route paths.
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },

@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
+// Cleans PDF filenames to a nicer title for showing in the modal header.
 export function readableTitle(filename) {
   return filename
     .replace(/\.pdf$/i, '')
@@ -11,6 +12,7 @@ export function readableTitle(filename) {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+  // PDF viewer modal that can show the original file or a highlighted preview.
 export function PdfModal({ filename, trigger, chunks = [] }) {
   const [pdfUrl, setPdfUrl] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -22,6 +24,7 @@ export function PdfModal({ filename, trigger, chunks = [] }) {
       return
     }
 
+    // Loads highlighted PDF when chunk matches exist, otherwise opens original file.
     const fetchPdf = async () => {
       setIsLoading(true)
       try {
