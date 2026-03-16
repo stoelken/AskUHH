@@ -83,10 +83,27 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
     setDragActive(true)
   }
 
+  // Activates dropzone as soon as files enter, so dropping multiple feels reliable.
+  function handleDragEnter(e) {
+    e.preventDefault()
+    setDragActive(true)
+  }
+
   // Removes dropzone highlight when files leave the area.
   function handleDragLeave(e) {
     e.preventDefault()
     setDragActive(false)
+  }
+
+  // Normalizes dropped data so we reliably get all files from the browser drop event.
+  function getDroppedFiles(e) {
+    const itemFiles = Array.from(e.dataTransfer?.items || [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter(Boolean)
+
+    if (itemFiles.length > 0) return itemFiles
+    return Array.from(e.dataTransfer?.files || [])
   }
 
   // Handles dropped files and passes them to the upload flow.
@@ -94,8 +111,9 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
     e.preventDefault()
     setDragActive(false)
     if (uploading) return
-    if (!e.dataTransfer?.files?.length) return
-    handleUploadFiles(e.dataTransfer.files)
+    const files = getDroppedFiles(e)
+    if (!files.length) return
+    handleUploadFiles(files)
   }
 
   // Handles file picker selection, uploads files, then resets the input value.
@@ -138,6 +156,7 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
 
       <div
         className={`dropzone ${dragActive ? 'dropzone--active' : ''} ${uploading ? 'dropzone--disabled' : ''}`}
+        onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
