@@ -13,6 +13,7 @@ _text_collection: Optional[chromadb.Collection] = None
 _HNSW_META = {"hnsw:space": "cosine", "hnsw:search_ef": 100}
 
 
+# Opens/creates the persistent Chroma collection used for text chunks.
 def init() -> None:
     global _client, _text_collection
     _client = chromadb.PersistentClient(path=CHROMA_DIR)
@@ -23,6 +24,7 @@ def init() -> None:
     logger.info(f"ChromaDB ready at {CHROMA_DIR} — text={_text_collection.count()}")
 
 
+# Batch upserts chunk ids, docs, embeddings, and metadata into Chroma.
 def upsert_text(
     ids: List[str],
     documents: List[str],
@@ -40,6 +42,7 @@ def upsert_text(
     logger.info(f"Upserted {len(ids)} text chunks")
 
 
+# Regular nearest-neighbor query for text chunks.
 def search_text(query_embedding: List[float], n_results: int) -> dict:
     count = _text_collection.count()
     if count == 0:
@@ -56,6 +59,7 @@ def search_text(query_embedding: List[float], n_results: int) -> dict:
         return _get_all_fallback(_text_collection, query_embedding, n, include_documents=True)
 
 
+    # Filtered nearest-neighbor query, used for image descriptions, etc. .
 def search_text_filtered(
     query_embedding: List[float],
     n_results: int,
@@ -77,6 +81,7 @@ def search_text_filtered(
         return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
 
 
+# Clears all text entries from the current collection.
 def clear_text() -> None:
     existing = _text_collection.get()["ids"]
     if existing:
@@ -84,10 +89,13 @@ def clear_text() -> None:
         logger.info(f"Cleared {len(existing)} text chunks")
 
 
+# Returns total chunk count currently stored.
 def text_count() -> int:
     return _text_collection.count()
 
 
+# Fallback cosine search when Chroma HNSW query fails.
+# HSNW is an approximate algorithm for nearest neighbor search.
 def _get_all_fallback(
     collection: chromadb.Collection,
     query_embedding: List[float],

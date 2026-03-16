@@ -1,5 +1,6 @@
 const BASE = '/api'
 
+// Small helper for JSON API calls with shared headers + error handling.
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -12,6 +13,7 @@ async function request(path, options = {}) {
   return res.json()
 }
 
+// Opens SSE stream for query tokens/sources and forwards events to callbacks.
 async function queryStream(
   question,
   { onSources, onToken, onDone, onError, onFollowups },
@@ -85,8 +87,11 @@ async function queryStream(
 }
 
 export const api = {
+  // Gets current backend/index status.
   status: () => request('/status'),
+  // Triggers (re)indexing on backend.
   ingest: () => request('/ingest', { method: 'POST' }),
+  // Uploads one or more PDF files as multipart form data.
   uploadDocuments: async (files) => {
     const formData = new FormData()
     for (const file of files) {
@@ -104,9 +109,11 @@ export const api = {
     }
     return res.json()
   },
+  // Deletes one document by filename.
   deleteDocument: (filename) =>
     request(`/documents/${encodeURIComponent(filename)}`, {
       method: 'DELETE',
     }),
+  // Starts streaming query response events.
   queryStream,
 }

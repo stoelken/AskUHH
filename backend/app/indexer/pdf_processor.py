@@ -18,6 +18,7 @@ MIN_ASPECT       = 0.15
 MAX_ASPECT       = 6.5
 
 
+# Checks if a candidate rectangle is big enough and has a useful shape.
 def _passes_size_filter(rect: fitz.Rect, min_area: int) -> bool:
     if rect.is_empty or rect.get_area() < min_area:
         return False
@@ -27,6 +28,7 @@ def _passes_size_filter(rect: fitz.Rect, min_area: int) -> bool:
     return MIN_ASPECT <= aspect <= MAX_ASPECT
 
 
+# Returns overlap ratio between 2 rectangles for dedupe checks.
 def _overlap_ratio(a: fitz.Rect, b: fitz.Rect) -> float:
     inter = a & b
     if inter.is_empty:
@@ -34,6 +36,7 @@ def _overlap_ratio(a: fitz.Rect, b: fitz.Rect) -> float:
     return inter.get_area() / min(a.get_area(), b.get_area())
 
 
+# Extracts and saves useful page images/figures from a PDF.
 def extract_images_from_pdf(
     pdf_bytes: bytes,
     filename: str,
@@ -51,9 +54,11 @@ def extract_images_from_pdf(
         page_text = page.get_text().strip()
         accepted_rects: List[fitz.Rect] = []
 
+        # Skips regions that overlap too much with already accepted ones.
         def _is_overlapping(rect: fitz.Rect) -> bool:
             return any(_overlap_ratio(rect, seen) > 0.5 for seen in accepted_rects)
 
+        # Crops, deduplicates, and stores one accepted image region.
         def collect(rect: fitz.Rect, min_area: int) -> None:
             if not _passes_size_filter(rect, min_area):
                 return

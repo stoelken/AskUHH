@@ -32,6 +32,7 @@ const buttonVariants = cva(
   }
 )
 
+// Shared button wrapper so variant/size styles stay consistent across the app.
 function Button({ className, variant, size, asChild = false, ...props }) {
   const Comp = asChild ? Slot : 'button'
   return <Comp className={cn(buttonVariants({ variant, size, className }))} {...props} />
