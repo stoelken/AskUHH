@@ -14,6 +14,120 @@ import { Button } from './button'
 import { PdfModal, readableTitle } from './PdfModal'
 import { cn } from '@/lib/utils'
 
+function scoreSentences(content, logprobs) {
+  if (!logprobs?.length || !content?.trim()) return null
+
+  const sentenceRegex = /[^.!?\n]+[.!?\n]?/g
+  const rawSentences = content.match(sentenceRegex) ?? [content]
+  const sentences = rawSentences.map((s) => s.trim()).filter(Boolean)
+
+  if (!sentences.length) return null
+
+  let tokenCursor = 0
+  return sentences.map((sentence) => {
+    const sentProbs = []
+    let charsMatched = 0
+
+    for (let i = tokenCursor; i < logprobs.length; i++) {
+      const t = logprobs[i]
+      if (typeof t.probability !== 'number') continue
+
+      charsMatched += t.token.length
+      sentProbs.push(t.probability)
+
+      if (charsMatched >= sentence.length) {
+        tokenCursor = i + 1
+        break
+      }
+    }
+
+    const avg =
+      sentProbs.length > 0
+        ? Math.round(sentProbs.reduce((s, p) => s + p, 0) / sentProbs.length)
+        : null
+    const min = sentProbs.length > 0 ? Math.round(Math.min(...sentProbs)) : null
+
+    return { text: sentence, avgProb: avg, minProb: min }
+  })
+}
+
+function sentenceBorderColor(avgProb) {
+  if (avgProb === null) return 'transparent'
+  if (avgProb >= 97) return 'rgba(34,197,94,0.5)'
+  if (avgProb >= 93) return 'rgba(234,179,8,0.6)'
+  if (avgProb >= 88) return 'rgba(249,115,22,0.7)'
+  return 'rgba(239,68,68,0.8)'
+}
+
+function SentenceScoredAnswer({ content, logprobs }) {
+  const scored = scoreSentences(content, logprobs)
+
+  if (!scored) {
+    return (
+      <div className="prose prose-sm prose-invert max-w-none [&>*]:my-6 [&>p]:leading-relaxed">
+        <ReactMarkdown>{content}</ReactMarkdown>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      {scored.map((s, i) => {
+        const borderColor = sentenceBorderColor(s.avgProb)
+        const tooltip =
+          s.avgProb !== null
+            ? `avg confidence: ${s.avgProb}% | min: ${s.minProb}%`
+            : 'no confidence data'
+
+        return (
+          <div
+            key={i}
+            title={tooltip}
+            style={{
+              borderLeft: `3px solid ${borderColor}`,
+              paddingLeft: '8px',
+              cursor: 'help',
+            }}
+          >
+            <ReactMarkdown
+              components={{
+                p: ({ children }) => <span className="text-sm leading-relaxed">{children}</span>,
+              }}
+            >
+              {s.text}
+            </ReactMarkdown>
+          </div>
+        )
+      })}
+
+      <div
+        style={{
+          display: 'flex',
+          gap: '10px',
+          marginTop: '6px',
+          fontSize: '10px',
+          color: '#6c757d',
+          flexWrap: 'wrap',
+        }}
+      >
+        <span>
+          <span style={{ color: 'rgba(34,197,94,0.9)' }}>▌</span> ≥97%
+        </span>
+        <span>
+          <span style={{ color: 'rgba(234,179,8,0.9)' }}>▌</span> 93–97%
+        </span>
+        <span>
+          <span style={{ color: 'rgba(249,115,22,0.9)' }}>▌</span> 88–93%
+        </span>
+        <span>
+          <span style={{ color: 'rgba(239,68,68,0.9)' }}>▌</span> &lt;88%
+        </span>
+        <span style={{ opacity: 0.5 }}>hover for details</span>
+      </div>
+    </div>
+  )
+}
+
 // Renders one chat bubble (user or assistant) with sources, images, and follow-ups.
 export function MessageItem({
   role,
@@ -22,6 +136,7 @@ export function MessageItem({
   avgProbability = null,
   streaming = false,
   debugImages = [],
+  logprobs = [],
   followups = [],
   showFollowups = false,
   onFollowupClick,
@@ -29,19 +144,14 @@ export function MessageItem({
   const [srcOpen, setSrcOpen] = useState(false)
   const [imgOpen, setImgOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [showSentenceScores, setShowSentenceScores] = useState(false)
 
   const isUser = role === 'user'
   const showTyping = !isUser && streaming && !content?.trim()
   const showCopy = !isUser && !streaming && content?.trim()
 
   const pdfs =
-    sources?.map((item) => {
-      if (typeof item === 'string') {
-        return { filename: item, chunks: [] }
-      } else {
-        return item
-      }
-    }) ?? []
+    sources?.map((item) => (typeof item === 'string' ? { filename: item, chunks: [] } : item)) ?? []
 
   // Copies assistant text to clipboard.
   const handleCopy = () => {
@@ -88,6 +198,8 @@ export function MessageItem({
             <span />
             <span />
           </div>
+        ) : showSentenceScores && logprobs.length > 0 ? (
+          <SentenceScoredAnswer content={content} logprobs={logprobs} />
         ) : (
           <div className="prose prose-sm prose-invert max-w-none [&>*]:my-6 [&>p]:leading-relaxed">
             <ReactMarkdown>{content}</ReactMarkdown>
@@ -106,6 +218,39 @@ export function MessageItem({
           </button>
         )}
       </div>
+
+      {!isUser && !streaming && logprobs.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {typeof avgProbability === 'number' && (
+            <span style={{ fontSize: '10px', color: '#6c757d' }}>
+              avg confidence:{' '}
+              <strong
+                style={{
+                  color:
+                    avgProbability >= 97 ? '#22c55e' : avgProbability >= 93 ? '#eab308' : '#ef4444',
+                }}
+              >
+                {avgProbability.toFixed(1)}%
+              </strong>
+            </span>
+          )}
+          <button
+            onClick={() => setShowSentenceScores((v) => !v)}
+            style={{
+              fontSize: '10px',
+              padding: '2px 7px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              border: '1px solid #444',
+              background: showSentenceScores ? '#6366f1' : 'transparent',
+              color: showSentenceScores ? '#fff' : '#aaa',
+            }}
+            title="Show sentence-level confidence scores"
+          >
+            {showSentenceScores ? 'hide confidence' : 'show confidence'}
+          </button>
+        </div>
+      )}
 
       {!isUser && !streaming && (
         <div className="flex flex-col gap-2 w-full">
@@ -152,26 +297,18 @@ export function MessageItem({
 
       {!isUser && !streaming && pdfs.length > 0 && (
         <div className="flex flex-col gap-2 w-full">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSrcOpen((v) => !v)}
-              className="self-start gap-2 h-7 px-2 text-xs"
-            >
-              <BookOpen size={12} />
-              <span>
-                {pdfs.length} Document{pdfs.length > 1 ? 's' : ''}
-              </span>
-              {srcOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            </Button>
-
-            {typeof avgProbability === 'number' && (
-              <span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium border border-accent/40 bg-accent/10 text-accent">
-                Answer Certainty: {avgProbability.toFixed(1)}%
-              </span>
-            )}
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSrcOpen((v) => !v)}
+            className="self-start gap-2 h-7 px-2 text-xs"
+          >
+            <BookOpen size={12} />
+            <span>
+              {pdfs.length} Document{pdfs.length > 1 ? 's' : ''}
+            </span>
+            {srcOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </Button>
 
           {srcOpen && (
             <div className="flex flex-col gap-2 pl-4 border-l-2 border-accent/30">
