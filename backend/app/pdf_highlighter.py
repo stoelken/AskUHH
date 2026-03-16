@@ -6,6 +6,7 @@ import fitz
 logger = logging.getLogger(__name__)
 
 
+# Highlights matching chunk text in a PDF and returns the modified file bytes.
 def highlight_chunks_in_pdf(pdf_path: str, chunks: List[dict]) -> bytes:
     doc = fitz.open(pdf_path)
 

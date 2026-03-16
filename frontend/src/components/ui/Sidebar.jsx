@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { FileText, RefreshCw, Database, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
 import { api } from '../../api/client'
 
+// Main sidebar UI: shows stats, lets us upload PDFs, index them, and manage loaded docs.
 export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
   const [ingesting, setIngesting] = useState(false)
   const [ingestMsg, setIngestMsg] = useState(null)
@@ -12,6 +13,7 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
   const [docsOpen, setDocsOpen] = useState(true)
   const canIngest = Boolean(status?.needs_index)
 
+  // Runs indexing when needed, then refreshes status so counts/messages stay updated.
   async function handleIngest() {
     if (!canIngest) return
     setIngesting(true)
@@ -27,6 +29,7 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
     }
   }
 
+  // Deletes one document by filename and refreshes status so the list updates right away.
   async function handleDeleteDocument(filename) {
     if (!filename || deletingDoc) return
     setDeletingDoc(filename)
@@ -45,12 +48,14 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
     }
   }
 
+  // Keeps only PDF files from any dropped/selected file list.
   function filterPdfFiles(files) {
     return Array.from(files).filter(
       (file) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
     )
   }
 
+  // Uploads selected/dropped PDFs, handles success/error messages, and refreshes status.
   async function handleUploadFiles(fileList) {
     const pdfFiles = filterPdfFiles(fileList)
     if (pdfFiles.length === 0) {
@@ -72,16 +77,19 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
     }
   }
 
+  // Enables dropzone highlight while dragging files over it.
   function handleDragOver(e) {
     e.preventDefault()
     setDragActive(true)
   }
 
+  // Removes dropzone highlight when files leave the area.
   function handleDragLeave(e) {
     e.preventDefault()
     setDragActive(false)
   }
 
+  // Handles dropped files and passes them to the upload flow.
   function handleDrop(e) {
     e.preventDefault()
     setDragActive(false)
@@ -90,6 +98,7 @@ export default function Sidebar({ status, onStatusRefresh, isOpen = false }) {
     handleUploadFiles(e.dataTransfer.files)
   }
 
+  // Handles file picker selection, uploads files, then resets the input value.
   function handleFileInputChange(e) {
     if (uploading) return
     const files = e.target.files

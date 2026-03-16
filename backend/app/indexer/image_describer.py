@@ -20,17 +20,20 @@ _PROMPT = (
 )
 
 
+# Stores shared HTTP client used for VLM calls.
 def init(client: httpx.Client) -> None:
     global _client
     _client = client
 
 
+# Converts a PIL image to base64 PNG for model input.
 def _pil_to_base64(img: Image.Image) -> str:
     buf = BytesIO()
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
 
 
+# Describes one image using the configured vision-language model.
 def describe_image(img: Image.Image) -> str:
     b64 = _pil_to_base64(img)
     resp = _client.post(
@@ -50,6 +53,7 @@ def describe_image(img: Image.Image) -> str:
     return resp.json().get("response", "").strip()
 
 
+# Describes many images and falls back to page text if one fails.
 def describe_images(entries: List[dict]) -> List[str]:
     descriptions = []
     for i, entry in enumerate(entries):

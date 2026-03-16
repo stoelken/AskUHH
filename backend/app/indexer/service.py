@@ -13,16 +13,19 @@ from ..config import CHUNK_OVERLAP, CHUNK_SIZE, IMAGES_DIR
 logger = logging.getLogger(__name__)
 
 
+# Initializes all indexer dependencies (embeddings, image describer, and store).
 def init(http_client: httpx.Client) -> None:
     embeddings.init(http_client)
     image_describer.init(http_client)
     store.init()
 
 
+# Returns current text chunk count from the vector store.
 def get_status() -> dict:
     return {"text_count": store.text_count()}
 
 
+# Rebuilds index from PDFs: text chunks + image descriptions.
 def ingest_pdfs(pdf_paths: List[Path]) -> dict:
     store.clear_text()
 
@@ -101,6 +104,7 @@ def ingest_pdfs(pdf_paths: List[Path]) -> dict:
     return result
 
 
+# Semantic text search over indexed chunks with score normalization.
 def search_text(query: str, top_k: int = 4) -> List[dict]:
     if store.text_count() == 0:
         return []
@@ -124,6 +128,7 @@ def search_text(query: str, top_k: int = 4) -> List[dict]:
     ]
 
 
+# Finds relevant images using description vectors and returns base64 payloads.
 def search_images(query: str, top_k: int = 2) -> List[dict]:
     scored_by_path: dict[str, dict] = {}
 

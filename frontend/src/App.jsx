@@ -9,6 +9,7 @@ import { MessageItem } from './components/ui/message-item'
 const MAX_STORED_MESSAGES = 6
 const STORAGE_KEY = 'askuhh_chat_history'
 
+// Main app component: controls chat flow, sidebar state, and message rendering.
 export default function App() {
   const { status, loading: statusLoading, error: statusError, refresh } = useStatus()
   const [messages, setMessages] = useState(() => {
@@ -30,6 +31,7 @@ export default function App() {
   const abortRef = useRef(null)
   const hasStarted = messages.length > 0
 
+  // Stops the current streaming request and resets loading animation states.
   function handleAbort() {
     abortRef.current?.abort()
     abortRef.current = null
@@ -37,6 +39,7 @@ export default function App() {
     setAnimating(false)
   }
 
+  // Clears the recent chat history and also cancels streaming if needed.
   function handleClearRecent() {
     if (querying) {
       handleAbort()
@@ -50,6 +53,7 @@ export default function App() {
       localStorage.removeItem(STORAGE_KEY)
       return
     }
+    // Keep only the latest messages so localStorage does not grow forever.
     try {
       const toStore = messages.slice(-MAX_STORED_MESSAGES).map((msg) => ({
         role: msg.role,
@@ -76,6 +80,7 @@ export default function App() {
     ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
   }, [input])
 
+  // Runs send animation first, then sends the trimmed user question.
   async function handleSend() {
     const q = input.trim()
     if (!q || querying || animating) return
@@ -88,6 +93,7 @@ export default function App() {
     }, 380)
   }
 
+  // Enter sends the message, Shift+Enter keeps normal multiline typing.
   function handleKey(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -95,6 +101,7 @@ export default function App() {
     }
   }
 
+  // Clicking a follow-up chip sends that exact question.
   function handleFollowupClick(question) {
     if (querying || animating) return
     setInput(question)
@@ -104,6 +111,7 @@ export default function App() {
     }, 50)
   }
 
+  // Full ask flow: add user msg, stream assistant tokens, and update UI chunks.
   async function sendQuestion(q) {
     if (!q || querying || animating) return
 
@@ -206,6 +214,7 @@ export default function App() {
 
   const notIndexed = !statusLoading && status?.chunk_count === 0
 
+  // Reusable input UI for centered first question and bottom follow-up mode.
   const inputBox = (centered) => (
     <div className={centered ? 'input-row input-row--centered' : 'input-row'}>
       <textarea
