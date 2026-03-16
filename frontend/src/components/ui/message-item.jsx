@@ -226,8 +226,7 @@ export function MessageItem({
               avg confidence:{' '}
               <strong
                 style={{
-                  color:
-                    avgProbability >= 97 ? '#22c55e' : avgProbability >= 93 ? '#eab308' : '#ef4444',
+                  color: sentenceBorderColor(avgProbability),
                 }}
               >
                 {avgProbability.toFixed(1)}%
