@@ -1,6 +1,7 @@
 import json
 import logging
 import math
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List
@@ -439,13 +440,44 @@ def _build_sources(chunks: list) -> list:
         for name in list(sources_map.keys())[:3]
     ]
 
+# Detects query language and translates to English if needed for better retrieval results.
+def _translate_if_needed(question: str) -> str:
+    try:
+        lang = detect(question)
+    except Exception:
+        lang = "unknown"
+
+    if lang == "de" or lang == "en":
+        return question
+
+    logger.info(f"Query language '{lang}' — translating to English for retrieval")
+    try:
+        resp = http_client.post(
+            f"{OLLAMA_HOST}/api/generate",
+            json={
+                "model": LLM_MODEL,
+                "prompt": f"Translate this text to ENGLISH. Output ONLY the translation:\n\n{question}",
+                "system": "You are a translator. Output only the translated text, no explanations.",
+                "stream": False,
+                "options": {"temperature": 0, "num_predict": 512},
+            },
+        )
+        resp.raise_for_status()
+        translated = resp.json().get("response", "").strip()
+        translated = re.sub(r"<think>.*?</think>", "", translated, flags=re.DOTALL).strip()
+        logger.info(f"Translated search query: {translated[:200]!r}")
+        return translated if translated else question
+    except Exception as e:
+        logger.warning(f"Translation failed, using original query: {e}")
+        return question
 
 # Main streaming query endpoint: retrieve, call LLM, and stream SSE events.
 @app.post("/query/stream")
 def query_stream(req: QueryRequest):
     try:
         merged_question = _compose_question_with_history(req.question, req.history)
-        chunks = indexer.search_text(merged_question)
+        search_query = _translate_if_needed(req.question)
+        chunks = indexer.search_text(search_query)
     except Exception as e:
         logger.error(f"Retrieval failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -458,7 +490,7 @@ def query_stream(req: QueryRequest):
 
     all_images = []
     try:
-        image_results = indexer.search_images(merged_question, TOP_K_IMAGES)
+        image_results = indexer.search_images(search_query, TOP_K_IMAGES)
         all_images = [img["image_b64"] for img in image_results if isinstance(img, dict) and img.get("image_b64")]
         logger.info(
             "Image search: %s images, scores=%s",
