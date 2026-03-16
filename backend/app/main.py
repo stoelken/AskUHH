@@ -118,7 +118,7 @@ def highlight_pdf(req: HighlightRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-    # Returns app/index status like files, chunk counts, and model settings.
+# Returns app/index status like files, chunk counts, and model settings.
 @app.get("/status", response_model=StatusResponse)
 def status():
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
@@ -178,7 +178,7 @@ def delete_document(filename: str):
         raise HTTPException(status_code=500, detail="Failed to delete document.")
 
 
-    # Runs ingest/indexing over all PDFs currently in the docs directory.
+# Runs ingest/indexing over all PDFs currently in the docs directory.
 @app.post("/ingest", response_model=IngestResponse)
 def ingest():
     pdf_files = list(Path(DOCS_DIR).glob("**/*.pdf"))
@@ -203,7 +203,7 @@ def ingest():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-    # Upload endpoint that stores only valid PDF files in docs storage.
+# Upload endpoint that stores only valid PDF files in docs storage.
 @app.post("/documents/upload", response_model=UploadResponse)
 async def upload_documents(files: List[UploadFile] = File(...)):
     docs_path = Path(DOCS_DIR)
@@ -248,6 +248,49 @@ async def upload_documents(files: List[UploadFile] = File(...)):
 
 
 # Builds the final LLM prompt from question + retrieved chunks.
+def _get_baseline_logprobs(question: str) -> dict:
+    """
+    Call LLM without context to get baseline token probabilities.
+    Used to compute context_lift = how much the retrieved context
+    changed the model's confidence for each token.
+
+    context_lift > 0  context increased confidence (model is using the docs)
+    context_lift ≈ 0  model ignoring context (prior knowledge)
+    context_lift < 0  context confused the model (potential conflict)
+    """
+    baseline_prompt = (
+        f"Answer the following question as best you can.\n"
+        f"Question: {question}\n\n"
+        f"Answer:"
+    )
+    try:
+        resp = http_client.post(
+            f"{OLLAMA_HOST}/api/generate",
+            json={
+                "model":        LLM_MODEL,
+                "prompt":       baseline_prompt,
+                "system":       SYSTEM_PROMPT,
+                "stream":       False,
+                "logprobs":     True,
+                "top_logprobs": 20,
+                "options":      {"temperature": 0.1, "num_predict": 1024},
+            },
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+        result = {}
+        for token_data in raw.get("logprobs", []):
+            top = token_data.get("top_logprobs", [])
+            if top:
+                token = top[0]["token"]
+                result[token] = round(math.exp(top[0]["logprob"]) * 100, 1)
+        logger.info(f"Baseline logprobs collected: {len(result)} tokens")
+        return result
+    except Exception as e:
+        logger.warning(f"Baseline logprobs failed (context_lift will be null): {e}")
+        return {}
+
+
 def _build_prompt(question: str, chunks: list) -> str:
     lang = detect(question)
     context = "\n\n---\n\n".join(
@@ -478,6 +521,7 @@ def query_stream(req: QueryRequest):
         merged_question = _compose_question_with_history(req.question, req.history)
         search_query = _translate_if_needed(req.question)
         chunks = indexer.search_text(search_query)
+        baseline_probs = _get_baseline_logprobs(req.question)
     except Exception as e:
         logger.error(f"Retrieval failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -530,6 +574,7 @@ def query_stream(req: QueryRequest):
                         continue
                     chunk_data = json.loads(line)
 
+                    # Stream visible tokens to frontend
                     token = chunk_data.get("response", "")
                     if token:
                         visible = _strip_think_content(think_state, token)
@@ -537,13 +582,21 @@ def query_stream(req: QueryRequest):
                             yield f"event: token\ndata: {json.dumps(visible)}\n\n"
                             answer_parts.append(visible)
 
+                    # Collect logprobs with baseline/context_lift
                     for token_data in chunk_data.get("logprobs", []):
                         generated_token, probability, alternatives = _extract_actual_token_probability(token_data)
                         if not generated_token:
                             continue
+                        baseline = baseline_probs.get(generated_token, None)
+                        context_lift = (
+                            round(probability - baseline, 1)
+                            if probability is not None and baseline is not None else None
+                        )
                         token_probs.append({
-                            "token": generated_token,
-                            "probability": probability,
+                            "token":        generated_token,
+                            "probability":  probability,
+                            "baseline":     baseline,
+                            "context_lift": context_lift,
                             "alternatives": alternatives,
                         })
 
@@ -553,6 +606,13 @@ def query_stream(req: QueryRequest):
                             think_state["buffer"] = ""
                             yield f"event: token\ndata: {json.dumps(tail)}\n\n"
                             answer_parts.append(tail)
+                            token_probs.append({
+                                "token":        tail,
+                                "probability":  None,
+                                "baseline":     None,
+                                "context_lift": None,
+                                "alternatives": [],
+                            })
                         break
         except Exception as e:
             logger.error(f"Streaming failed: {e}", exc_info=True)
