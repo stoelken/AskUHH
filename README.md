@@ -349,6 +349,4 @@ Since this project was developed within a limited timeframe, there are several a
 - **Export functionality**: Allow users to export chat histories as PDF or Markdown
 - **Feedback mechanism**: Enable users to rate answers to continuously improve quality
 
----
-
 For questions or suggestions, please reach out via the [GitLab repository](https://git.informatik.uni-hamburg.de/3gorke/askuhh).
