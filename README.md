@@ -1,189 +1,251 @@
-# AskUHH - RAG Assistant for University Regulations <a name="Introduction"></a>
+AskUHH – RAG-Based Assistant for University Documents <a name="Introduction"></a>
+AskUHH is a document-based chat assistant specifically designed for working with university PDF documents such as examination regulations, study guidelines, and other legal documents of the University of Hamburg.
+The application allows users to upload PDF files, automatically index them, and then ask questions about the content in natural language. Answers are streamed in real time and are based exclusively on the uploaded documents. Source references with page numbers are displayed automatically, and the relevant passages in the original PDF can be highlighted directly.
+The current version of the pipeline includes:
 
-AskUHH is a document-based chat assistant for university regulation PDFs.
-It lets you upload documents, index them, ask questions in a chat UI, and open the matching PDF sources.
+PDF upload and management via a web interface
+Text chunk retrieval with semantic embeddings (ChromaDB)
+Image extraction and VLM descriptions for visual content in PDFs
+Streamed LLM answers with source documents, confidence scores, and follow-up suggestions
 
-In this project version, the pipeline includes:
+The goal is to simplify working with regulation-heavy PDF documents by providing answers that are directly grounded in the user's own files.
 
-- PDF upload and management
-- text chunk retrieval with embeddings (ChromaDB)
-- optional image extraction + image descriptions for visual content
-- streamed LLM answers with source documents and follow-up question suggestions
+Architecture <a name="Architecture"></a>
+System Overview <a name="SystemOverview"></a>
+AskUHH consists of three main components orchestrated via Docker Compose:
+ComponentTechnologyDescriptionFrontendReact 18, Vite, Tailwind CSS, shadcn/uiChat interface with sidebar for document management and indexingBackendFastAPI, Python 3.11REST API for PDF processing, indexing, retrieval, and LLM streamingOllamaOllama (Docker or external host)Local LLM inference for embeddings, answer generation, and image descriptions
+Data Flow <a name="DataFlow"></a>
 
-The goal is to make regulation-heavy PDFs easier to understand by giving answers grounded in your own files.
+PDF files are uploaded via the UI or placed directly into the docs folder
+During indexing, the backend extracts text chunks and images from the PDFs
+Text chunks are vectorized using the embedding model and stored in ChromaDB
+Images are described by a vision-language model and indexed as well
+When a user submits a query, the most relevant chunks and images are retrieved via similarity search
+The LLM generates an answer based exclusively on the retrieved context
+The answer is streamed token by token to the frontend, along with sources and follow-up suggestions
 
-# Data <a name="Data"></a>
+Data Sources <a name="DataSources"></a>
+SourceDescriptionLocationPDF filesUniversity documents serving as the knowledge basebackend/data/docs/Text chunksEmbedded text segments for retrievalDocker volume backend_chromaExtracted imagesPage images for VLM-based retrievalDocker volume backend_images
 
-## Data Overview <a name="DataOverview"></a>
+Installation <a name="Installation"></a>
+Prerequisites <a name="Prerequisites"></a>
+Before running the application, make sure the following tools are installed:
 
-| Source           | Description                                 | Location                     |
-| ---------------- | ------------------------------------------- | ---------------------------- |
-| PDF files        | University documents used as knowledge base | backend/data/docs/           |
-| Text chunks      | Embedded text segments for retrieval        | Docker volume backend_chroma |
-| Extracted images | Stored page images used for VLM retrieval   | Docker volume backend_images |
+Docker Desktop (with Docker Compose): Docker allows you to run the application in containers without installing local dependencies. Download at docker.com.
+Git: For version control and cloning the repository. Download at git-scm.com.
+Ollama endpoint: Either a local Ollama container (optionally with GPU support) or an external Ollama host reachable over the network.
 
-## Data Flow <a name="DataFlow"></a>
+Installation Steps <a name="InstallationSteps"></a>
 
-1. Add PDFs to the docs folder (or upload in UI)
-2. Trigger indexing
-3. Backend extracts text chunks (and images), then creates embeddings
-4. Query retrieves relevant chunks/images
-5. LLM streams an answer based only on retrieved context
+Clone the repository:
 
-# Installation <a name="Installation"></a>
+bash    git clone https://git.informatik.uni-hamburg.de/3gorke/askuhh.git
+    cd askuhh
 
-## Prerequisites <a name="Prerequisites"></a>
+Configure environment variables: Create a .env file in the root directory of the repository (or copy the template if available):
 
-Before you run this repository, make sure you have:
+bash    cp .env.example .env
 
-1. Docker Desktop (with Docker Compose)
-2. Git
-3. Optional GPU support (if you want to run Ollama locally with GPU)
-4. A reachable Ollama endpoint (local container or external host)
+Edit the .env file: Open the .env file and adjust the values to match your environment. A minimal configuration looks like this:
 
-## Installation Steps <a name="InstallationSteps"></a>
+dotenv    OLLAMA_HOST=http://134.100.39.14:11435
 
-1. Clone repository
+    LLM_MODEL=qwen3-vl:8b-instruct
+    EMBED_MODEL=snowflake-arctic-embed2
+    TOP_K_IMAGES=3
 
-```bash
-git clone https://git.informatik.uni-hamburg.de/3gorke/askuhh.git
-cd askuhh
-```
+    FRONTEND_PORT=3123
+    BACKEND_PORT=8123
+The most important variables are:
 
-2. Create local env file
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OLLAMA_HOST` | URL of the Ollama endpoint | `http://localhost:11434` |
+| `LLM_MODEL` | LLM model for answer generation | `qwen3-vl:8b-instruct` |
+| `EMBED_MODEL` | Model for text embeddings | `snowflake-arctic-embed2` |
+| `VLM_MODEL` | Vision-language model for image descriptions | `qwen3-vl:8b-instruct` |
+| `TOP_K_IMAGES` | Number of images retrieved per query | `3` |
+| `FRONTEND_PORT` | Port for the frontend | `3000` |
+| `BACKEND_PORT` | Port for the backend | `8000` |
+4. Start the application: Launch the full stack with Docker Compose:
+bash    docker compose up --build
+This starts two containers:
+- `askuhh-backend` – FastAPI server on the configured backend port
+- `askuhh-frontend` – Nginx server with the React app on the configured frontend port
+5. Optional – Start a local Ollama container: If no external Ollama host is available, you can start a local Ollama container with GPU support:
+bash    docker compose -f docker-compose.gpu.yml up -d ollama
+Make sure the required models are loaded on the Ollama host:
+bash    ollama pull qwen3-vl:8b-instruct
+    ollama pull snowflake-arctic-embed2
 
-```bash
-cp .env.example .env
-```
+Open the application: Open a web browser and navigate to:
 
-3. Edit environment values in .env
+    http://localhost:3123
+(Adjust the port according to your `FRONTEND_PORT` configuration.)
 
-Minimal example:
+User Guide <a name="UserGuide"></a>
+Quick Start <a name="QuickStart"></a>
 
-```dotenv
-OLLAMA_HOST=http://134.100.39.14:11435
+Upload one or more PDF files via the sidebar
+Click Index / Re-index to process the documents
+Wait until the chunk count appears in the sidebar
+Ask your question in the chat window
+Open source documents directly from the answer cards
 
-LLM_MODEL=qwen3-vl:8b-instruct
-EMBED_MODEL=snowflake-arctic-embed2
-TOP_K_IMAGES=3
+Document Management <a name="DocumentHandling"></a>
 
-FRONTEND_PORT=3123
-BACKEND_PORT=8123
-```
+Upload: Use the dropzone or file dialog in the sidebar. Only PDF files are accepted.
+Delete: Individual documents can be removed via the document list in the sidebar.
+Re-indexing: After adding or removing documents, indexing must be re-run via Index / Re-index for changes to take effect in retrieval.
 
-4. Start app stack
+Chat Features <a name="ChatFeatures"></a>
 
-```bash
-docker compose up --build
-```
+Streaming answers: Responses are displayed token by token in real time.
+Source references: Each answer shows the relevant PDF sources with page numbers. Clicking a source opens the highlighted passage in the original PDF.
+Follow-up suggestions: After each answer, three follow-up questions are automatically generated and can be sent with a single click.
+Multilingual support: Questions can be asked in German and English. Answers are returned in the language of the question.
+Confidence scores: An average token probability is calculated for each answer, serving as an indicator of response reliability.
+Chat history: Recent messages are stored locally and restored on revisit. The history can be cleared at any time using the trash button.
+Cancel: Ongoing answers can be interrupted at any time using the stop button.
 
-This starts:
+Indexing Notice <a name="IndexingNote"></a>
+If no documents have been indexed yet, the application displays a notice banner and blocks the chat window. In this case, PDFs must first be uploaded and indexed.
 
-- askuhh-backend
-- askuhh-frontend
+API Overview <a name="ApiOverview"></a>
+The backend provides a REST API that can also be used independently of the frontend.
+Endpoints <a name="Endpoints"></a>
+EndpointMethodDescription/healthGETHealth check for containers and monitoring/statusGETStatus data for the frontend sidebar (document list, chunk count, model configuration)/documents/uploadPOSTUpload PDF files/documents/{filename}DELETEDelete a PDF file/ingestPOSTBuild or rebuild the index/query/streamPOSTSSE stream with answer tokens, sources, logprobs, and follow-ups/pdf/{filename}GETServe the original PDF/pdf/highlightPOSTReturn a PDF with highlighted chunk locations
+Example: Streaming Query <a name="QueryExample"></a>
+bashcurl -X POST http://localhost:8123/query/stream \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the deadlines for exam registration?", "history": []}'
+The response is streamed as Server-Sent Events (SSE) with the following event types:
+EventContentsourcesList of relevant PDF chunks with filename, page, and texttokenSingle answer token (streamed incrementally)doneLogprobs, average probability, and debug datafollowupsList of three suggested follow-up questionserrorError message in case of problems
 
-5. Optional: start local Ollama container profile
+Developer Guide <a name="DeveloperGuide"></a>
+Project Structure <a name="ProjectStructure"></a>
+askuhh/
+├── frontend/                    # React + Vite frontend
+│   ├── src/
+│   │   ├── App.jsx              # Main chat component
+│   │   ├── api/
+│   │   │   └── client.js        # API client with SSE parsing
+│   │   ├── components/ui/
+│   │   │   ├── Sidebar.jsx      # Document management and status
+│   │   │   ├── message-item.jsx # Message display with sources and logprobs
+│   │   │   ├── PdfModal.jsx     # PDF viewer with highlighting
+│   │   │   └── button.jsx       # Reusable button component
+│   │   └── hooks/
+│   │       └── useStatus.js     # Status polling hook
+│   ├── Dockerfile               # Multi-stage build (Node → Nginx)
+│   ├── nginx.conf               # Reverse proxy configuration to backend
+│   ├── package.json             # Dependencies and scripts
+│   └── vite.config.js           # Vite configuration
+│
+├── backend/                     # FastAPI backend
+│   ├── app/
+│   │   ├── main.py              # API endpoints, prompt construction, streaming logic
+│   │   ├── config.py            # Environment variables and system configuration
+│   │   ├── pdf_highlighter.py   # PDF highlighting for source view
+│   │   └── indexer/
+│   │       ├── service.py       # Indexing and search orchestration
+│   │       ├── embeddings.py    # Ollama embedding client
+│   │       ├── store.py         # ChromaDB vector store
+│   │       ├── pdf_processor.py # PDF text and image extraction
+│   │       └── image_describer.py # VLM-based image descriptions
+│   ├── data/docs/               # Mounted folder for PDF files
+│   ├── Dockerfile               # Python 3.11 container
+│   └── requirements.txt         # Python dependencies
+│
+├── docker-compose.yml           # Frontend + backend services
+├── docker-compose.gpu.yml       # Optional local Ollama container with GPU
+└── README.md
+Technology Stack <a name="TechStack"></a>
+AreaTechnologyFrontendReact 18, Vite, Tailwind CSS, shadcn/ui, Lucide Icons, react-markdownBackendFastAPI, Uvicorn, Python 3.11Vector databaseChromaDBPDF processingPyMuPDF (fitz)Text splittingLangChain RecursiveCharacterTextSplitterLLM inferenceOllama (local or remote)Default modelsqwen3-vl:8b-instruct (LLM + VLM), snowflake-arctic-embed2 (embeddings)ContainerizationDocker, Docker Compose, Nginx
+Typical Development Workflow <a name="DevWorkflow"></a>
 
-```bash
-docker compose --profile ollama -f docker-compose.gpu.yml up -d ollama
-```
+Clone the repository and switch to the main branch:
 
-Use this when you do not want to rely on an external Ollama host.
+bash    git checkout main
 
-6. Open app
+Create a new feature branch:
 
-```text
-http://localhost:3123
-```
+bash    git checkout -b feature/your_feature_name
 
-# User Guide <a name="UserGuide"></a>
+Start services with Docker Compose:
 
-## Quick Start in App <a name="QuickStartInApp"></a>
+bash    docker compose up --build
 
-1. Upload one or more PDFs in the sidebar
-2. Click Index / Re-index
-3. Wait until chunk count is available
-4. Ask your question in the chat
-5. Open source PDFs from the answer cards
+Place test PDFs in backend/data/docs/ and index them via the UI
+Ask test questions and verify the sources in the answers
+Check backend logs for retrieval and LLM behavior:
 
-## Document Handling <a name="DocumentHandling"></a>
+bash    docker compose logs -f backend
 
-- Upload uses the sidebar dropzone or file picker
-- Only PDF files are accepted
-- You can delete individual documents in the loaded documents list
-- After adding/deleting docs, run Index / Re-index to refresh retrieval data
+Commit your changes and create a pull request
 
-## Chat Behavior <a name="ChatBehavior"></a>
+Notes on Models <a name="ModelNotes"></a>
 
-- Answers are streamed token-by-token
-- Sources are shown per assistant response
-- Follow-up suggestions are generated after the answer
-- If nothing is indexed yet, the app will block querying and show a hint banner
+The LLM model (LLM_MODEL) is used for answer generation, follow-up questions, and language translation.
+The embedding model (EMBED_MODEL) creates vector representations of text chunks for semantic retrieval.
+The vision-language model (VLM_MODEL) describes extracted images from PDFs so that visual content becomes searchable as well.
+All models must be available on the configured Ollama host. To load them:
 
-# API Overview <a name="ApiOverview"></a>
+bash    ollama pull qwen3-vl:8b-instruct
+    ollama pull snowflake-arctic-embed2
 
-## Main Endpoints <a name="MainEndpoints"></a>
+Troubleshooting <a name="Troubleshooting"></a>
+Backend not reachable
 
-| Endpoint              | Method | Purpose                                      |
-| --------------------- | ------ | -------------------------------------------- |
-| /health               | GET    | service health check                         |
-| /status               | GET    | frontend status cards and indexing state     |
-| /documents/upload     | POST   | upload PDF files                             |
-| /documents/{filename} | DELETE | delete PDF file                              |
-| /ingest               | POST   | build/rebuild index                          |
-| /query/stream         | POST   | SSE answer stream                            |
-| /pdf/{filename}       | GET    | serve original PDF                           |
-| /pdf/highlight        | POST   | create highlighted PDF from retrieved chunks |
+Check container status: docker compose ps
+Verify BACKEND_PORT mapping in the .env file
+Test the health endpoint directly: http://localhost:8123/health
 
-# Developer Guide <a name="DeveloperGuide"></a>
+No answers or "No documents indexed"
 
-## Project Structure <a name="ProjectStructure"></a>
+Make sure PDFs exist in backend/data/docs/
+Run Index / Re-index in the sidebar
+Check chunk count in the sidebar status display
 
-- frontend/: React + Vite UI
-- backend/: FastAPI app + indexing pipeline
-- backend/app/indexer/: embeddings, vector store, PDF processing, image description
-- backend/data/docs/: mounted document folder for PDFs
-- docker-compose.yml: frontend + backend services
-- docker-compose.gpu.yml: optional local Ollama GPU profile
+Ollama connection issues
 
-## Typical Dev Workflow <a name="DevWorkflow"></a>
+Verify OLLAMA_HOST in the .env file
+If using the local Ollama container, make sure it is running: docker compose -f docker-compose.gpu.yml ps
+Check that the selected models are pulled and available: ollama list
 
-1. Start services with docker compose
-2. Add test PDFs into backend/data/docs/
-3. Trigger ingest from UI
-4. Ask test questions and verify sources
-5. Check backend logs for retrieval/LLM behavior
+Frontend shows a blank page
 
-## Notes on Models <a name="ModelNotes"></a>
+Check the browser console for error messages
+Make sure the backend is reachable (Nginx proxies /api requests to the backend)
+Rebuild containers: docker compose up --build
 
-- LLM model is configured with LLM_MODEL
-- Embedding model is configured with EMBED_MODEL
-- Vision-language model is configured with VLM_MODEL (if used)
-- Make sure models are available on your Ollama instance
 
-# Troubleshooting <a name="Troubleshooting"></a>
+Next Steps <a name="NextSteps"></a>
+Since this project was developed within a limited timeframe, there are several avenues for future improvement:
+Retrieval and Answer Quality
 
-## Backend not reachable
+Reranking: Implement a reranking step after initial retrieval to improve chunk relevance
+Hybrid search: Combine semantic search with keyword-based search (BM25) for more robust results
+Chunk strategy optimization: Evaluate different chunk sizes and overlap values for various document types
 
-- check container status: docker compose ps
-- verify BACKEND_PORT mapping
-- test health endpoint directly: http://localhost:8123/health
+Document Management
 
-## No answers or "No documents indexed"
+Incremental indexing: Only index newly added documents instead of rebuilding the entire index
+Per-document status: Display the indexing status for each individual document
+Indexing history: Log past indexing operations for traceability
 
-- make sure PDFs exist in backend/data/docs/
-- run Index / Re-index
-- verify chunk count in sidebar status
+Security and Access Control
 
-## Ollama connection issues
+Authentication: Integrate an authentication solution for application access
+Role-based access: Implement different permission levels for different user groups
 
-- verify OLLAMA_HOST in .env
-- if local ollama container is used, make sure it is running
-- ensure selected models are pulled and available
+Quality Assurance
 
-# Next Steps <a name="NextSteps"></a>
+Test suite: Automated tests for API endpoints and retrieval quality
+Evaluation benchmark: Systematic evaluation of answer quality on an annotated test dataset
 
-- add stronger auth and role-based access if needed
-- improve retrieval reranking for long regulation documents
-- add ingestion history and per-document indexing status
-- add test suite for API and retrieval quality checks
+User Experience
+
+Enhanced PDF viewer: Improved in-app PDF view with page navigation and zoom
+Export functionality: Allow users to export chat histories as PDF or Markdown
+Feedback mechanism: Enable users to rate answers to continuously improve quality
