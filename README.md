@@ -351,18 +351,4 @@ Since this project was developed within a limited timeframe, there are several a
 
 ---
 
-# License <a name="License"></a>
-
-*License information to be added.*
-
----
-
-# Acknowledgments <a name="Acknowledgments"></a>
-
-This project was developed as part of a course at the University of Hamburg.
-
----
-
-# Contact <a name="Contact"></a>
-
 For questions or suggestions, please reach out via the [GitLab repository](https://git.informatik.uni-hamburg.de/3gorke/askuhh).
