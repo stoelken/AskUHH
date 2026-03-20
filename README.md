@@ -2,7 +2,7 @@
 
 AskUHH is a document-based chat assistant specifically designed for working with university PDF documents such as examination regulations, study guidelines, and other legal documents of the University of Hamburg.
 
-The application allows users to upload PDF files, automatically index them, and then ask questions about the content in natural language. Answers are streamed in real time and are based exclusively on the uploaded documents. Source references with page numbers are displayed automatically, and the relevant passages in the original PDF can be highlighted directly.
+The application allows users to upload PDF files, automatically index them, and then ask questions about the content in natural language. Answers are streamed in real time and are based exclusively on the uploaded documents. Source references with page numbers are displayed automatically, and the relevant passages in the original PDF are highlighted directly.
 
 The current version of the pipeline includes:
 
@@ -62,66 +62,66 @@ Before running the application, make sure the following tools are installed:
 ## Installation Steps <a name="InstallationSteps"></a>
 
 1. **Clone the repository**:
-```bash
-    git clone https://git.informatik.uni-hamburg.de/3gorke/askuhh.git
-    cd askuhh
-```
+   ```bash
+   git clone https://git.informatik.uni-hamburg.de/3gorke/askuhh.git
+   cd askuhh
+   ```
 
 2. **Configure environment variables**: Create a `.env` file in the root directory of the repository (or copy the template if available):
-```bash
-    cp .env.example .env
-```
+   ```bash
+   cp .env.example .env
+   ```
 
 3. **Edit the `.env` file**: Open the `.env` file and adjust the values to match your environment. A minimal configuration looks like this:
-```dotenv
-    OLLAMA_HOST=http://134.100.39.14:11435
+   ```dotenv
+   OLLAMA_HOST=http://134.100.39.14:11435
 
-    LLM_MODEL=qwen3-vl:8b-instruct
-    EMBED_MODEL=snowflake-arctic-embed2
-    TOP_K_IMAGES=3
+   LLM_MODEL=qwen3-vl:8b-instruct
+   EMBED_MODEL=snowflake-arctic-embed2
+   TOP_K_IMAGES=3
 
-    FRONTEND_PORT=3123
-    BACKEND_PORT=8123
-```
+   FRONTEND_PORT=3123
+   BACKEND_PORT=8123
+   ```
 
-    The most important variables are:
+   The most important variables are:
 
-    | Variable | Description | Default |
-    |----------|-------------|---------|
-    | `OLLAMA_HOST` | URL of the Ollama endpoint | `http://localhost:11434` |
-    | `LLM_MODEL` | LLM model for answer generation | `qwen3-vl:8b-instruct` |
-    | `EMBED_MODEL` | Model for text embeddings | `snowflake-arctic-embed2` |
-    | `VLM_MODEL` | Vision-language model for image descriptions | `qwen3-vl:8b-instruct` |
-    | `TOP_K_IMAGES` | Number of images retrieved per query | `3` |
-    | `FRONTEND_PORT` | Port for the frontend | `3000` |
-    | `BACKEND_PORT` | Port for the backend | `8000` |
+   | Variable | Description | Default |
+   |----------|-------------|---------|
+   | `OLLAMA_HOST` | URL of the Ollama endpoint | `http://localhost:11434` |
+   | `LLM_MODEL` | LLM model for answer generation | `qwen3-vl:8b-instruct` |
+   | `EMBED_MODEL` | Model for text embeddings | `snowflake-arctic-embed2` |
+   | `VLM_MODEL` | Vision-language model for image descriptions | `qwen3-vl:8b-instruct` |
+   | `TOP_K_IMAGES` | Number of images retrieved per query | `3` |
+   | `FRONTEND_PORT` | Port for the frontend | `3000` |
+   | `BACKEND_PORT` | Port for the backend | `8000` |
 
 4. **Start the application**: Launch the full stack with Docker Compose:
-```bash
-    docker compose up --build
-```
+   ```bash
+   docker compose up --build
+   ```
 
-    This starts two containers:
-    - `askuhh-backend` – FastAPI server on the configured backend port
-    - `askuhh-frontend` – Nginx server with the React app on the configured frontend port
+   This starts two containers:
+   - `askuhh-backend` – FastAPI server on the configured backend port
+   - `askuhh-frontend` – Nginx server with the React app on the configured frontend port
 
 5. **Optional – Start a local Ollama container**: If no external Ollama host is available, you can start a local Ollama container with GPU support:
-```bash
-    docker compose -f docker-compose.gpu.yml up -d ollama
-```
+   ```bash
+   docker compose -f docker-compose.gpu.yml up -d ollama
+   ```
 
-    Make sure the required models are loaded on the Ollama host:
-```bash
-    ollama pull qwen3-vl:8b-instruct
-    ollama pull snowflake-arctic-embed2
-```
+   Make sure the required models are loaded on the Ollama host:
+   ```bash
+   ollama pull qwen3-vl:8b-instruct
+   ollama pull snowflake-arctic-embed2
+   ```
 
 6. **Open the application**: Open a web browser and navigate to:
-```
-    http://localhost:3123
-```
+   ```
+   http://localhost:3123
+   ```
 
-    (Adjust the port according to your `FRONTEND_PORT` configuration.)
+   (Adjust the port according to your `FRONTEND_PORT` configuration.)
 
 ---
 
@@ -251,28 +251,28 @@ askuhh/
 ## Typical Development Workflow <a name="DevWorkflow"></a>
 
 1. Clone the repository and switch to the `main` branch:
-```bash
-    git checkout main
-```
+   ```bash
+   git checkout main
+   ```
 
 2. Create a new feature branch:
-```bash
-    git checkout -b feature/your_feature_name
-```
+   ```bash
+   git checkout -b feature/your_feature_name
+   ```
 
 3. Start services with Docker Compose:
-```bash
-    docker compose up --build
-```
+   ```bash
+   docker compose up --build
+   ```
 
 4. Place test PDFs in `backend/data/docs/` and index them via the UI
 
 5. Ask test questions and verify the sources in the answers
 
 6. Check backend logs for retrieval and LLM behavior:
-```bash
-    docker compose logs -f backend
-```
+   ```bash
+   docker compose logs -f backend
+   ```
 
 7. Commit your changes and create a pull request
 
@@ -282,10 +282,10 @@ askuhh/
 - The **embedding model** (`EMBED_MODEL`) creates vector representations of text chunks for semantic retrieval.
 - The **vision-language model** (`VLM_MODEL`) describes extracted images from PDFs so that visual content becomes searchable as well.
 - All models must be available on the configured Ollama host. To load them:
-```bash
-    ollama pull qwen3-vl:8b-instruct
-    ollama pull snowflake-arctic-embed2
-```
+   ```bash
+   ollama pull qwen3-vl:8b-instruct
+   ollama pull snowflake-arctic-embed2
+   ```
 
 ---
 
@@ -348,5 +348,29 @@ Since this project was developed within a limited timeframe, there are several a
 - **Enhanced PDF viewer**: Improved in-app PDF view with page navigation and zoom
 - **Export functionality**: Allow users to export chat histories as PDF or Markdown
 - **Feedback mechanism**: Enable users to rate answers to continuously improve quality
+
+---
+
+# License
+
+This project is licensed under the MIT License.
+
+Copyright (c) 2026 Felix Gorke, Florian Eigendorf, Mustafa Qarizada, Maximilian Stölken
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+# Acknowledgments
+
+AskUHH was developed as part of the *Applications with Artificial Intelligence* course at the University of Hamburg (WiSe 2025/26).
+
+---
+
+# Contact Information
 
 For questions or suggestions, please reach out via the [GitLab repository](https://git.informatik.uni-hamburg.de/3gorke/askuhh).
