@@ -282,6 +282,7 @@ askuhh/
 - The **embedding model** (`EMBED_MODEL`) creates vector representations of text chunks for semantic retrieval.
 - The **vision-language model** (`VLM_MODEL`) describes extracted images from PDFs so that visual content becomes searchable as well.
 - All models must be available on the configured Ollama host. To load them:
+
    ```bash
    ollama pull qwen3-vl:8b-instruct
    ollama pull snowflake-arctic-embed2
