@@ -59,6 +59,14 @@ function sentenceBorderColor(avgProb) {
   return 'rgba(239,68,68,0.8)'
 }
 
+function sentenceConfidenceLevel(avgProb) {
+  if (avgProb === null) return 'none'
+  if (avgProb >= 97) return 'high'
+  if (avgProb >= 93) return 'medium'
+  if (avgProb >= 88) return 'low'
+  return 'very-low'
+}
+
 function SentenceScoredAnswer({ content, logprobs }) {
   const scored = scoreSentences(content, logprobs)
 
@@ -73,21 +81,28 @@ function SentenceScoredAnswer({ content, logprobs }) {
   return (
     <div className="flex flex-col gap-1">
       {scored.map((s, i) => {
-        const borderColor = sentenceBorderColor(s.avgProb)
+        const confidenceLevel = sentenceConfidenceLevel(s.avgProb)
         const tooltip =
           s.avgProb !== null
             ? `avg confidence: ${s.avgProb}% | min: ${s.minProb}%`
             : 'no confidence data'
 
+        const borderClass =
+          confidenceLevel === 'high'
+            ? 'border-l-emerald-400/70'
+            : confidenceLevel === 'medium'
+              ? 'border-l-amber-400/70'
+              : confidenceLevel === 'low'
+                ? 'border-l-orange-400/80'
+                : confidenceLevel === 'very-low'
+                  ? 'border-l-rose-400/90'
+                  : 'border-l-transparent'
+
         return (
           <div
             key={i}
             title={tooltip}
-            style={{
-              borderLeft: `3px solid ${borderColor}`,
-              paddingLeft: '8px',
-              cursor: 'help',
-            }}
+            className={cn('cursor-help border-l-[3px] pl-2', borderClass)}
           >
             <ReactMarkdown
               components={{
@@ -100,29 +115,20 @@ function SentenceScoredAnswer({ content, logprobs }) {
         )
       })}
 
-      <div
-        style={{
-          display: 'flex',
-          gap: '10px',
-          marginTop: '6px',
-          fontSize: '10px',
-          color: '#6c757d',
-          flexWrap: 'wrap',
-        }}
-      >
+      <div className="mt-1.5 flex flex-wrap gap-2.5 text-[10px] text-[#6c757d]">
         <span>
-          <span style={{ color: 'rgba(34,197,94,0.9)' }}>▌</span> ≥97%
+          <span className="text-emerald-400">▌</span> ≥97%
         </span>
         <span>
-          <span style={{ color: 'rgba(234,179,8,0.9)' }}>▌</span> 93–97%
+          <span className="text-amber-400">▌</span> 93–97%
         </span>
         <span>
-          <span style={{ color: 'rgba(249,115,22,0.9)' }}>▌</span> 88–93%
+          <span className="text-orange-400">▌</span> 88–93%
         </span>
         <span>
-          <span style={{ color: 'rgba(239,68,68,0.9)' }}>▌</span> &lt;88%
+          <span className="text-rose-400">▌</span> &lt;88%
         </span>
-        <span style={{ opacity: 0.5 }}>hover for details</span>
+        <span className="opacity-50">hover for details</span>
       </div>
     </div>
   )
@@ -164,39 +170,32 @@ export function MessageItem({
   return (
     <div
       className={cn(
-        'flex flex-col gap-2 max-w-[680px] w-full px-4 group/msg',
+        'group/msg flex w-full max-w-[680px] flex-col gap-2 px-4',
         isUser ? 'ml-auto items-end' : 'mr-auto items-start'
       )}
     >
       <div
         className={cn(
           showTyping
-            ? 'px-3 py-2 rounded-full w-fit'
-            : 'px-4 py-3 rounded-lg max-w-full break-words overflow-hidden',
+            ? 'w-fit rounded-full px-3 py-2'
+            : 'max-w-full overflow-hidden break-words rounded-[14px] border px-4 py-3',
           showCopy && 'relative pb-8',
-          isUser ? 'border' : 'border'
-        )}
-        style={
           isUser
-            ? {
-                background: 'var(--msg-user-bg)',
-                color: 'var(--msg-user-text)',
-                borderColor: 'var(--msg-user-border)',
-              }
-            : {
-                background: 'var(--msg-ai-bg)',
-                color: 'var(--msg-ai-text)',
-                borderColor: 'var(--msg-ai-border)',
-              }
-        }
+            ? 'border-[#2d5490] bg-[#1c3658] text-[#d6e8ff]'
+            : 'border-[#2f4c50] bg-[#21373a] text-[#e8e5f2]'
+        )}
       >
         {isUser ? (
-          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{content}</p>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">{content}</p>
         ) : showTyping ? (
-          <div className="typing" aria-label="Assistant is typing" role="status">
-            <span />
-            <span />
-            <span />
+          <div
+            className="flex items-center gap-1 px-px"
+            aria-label="Assistant is typing"
+            role="status"
+          >
+            <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-[#9ba0aa] [animation-delay:0ms]" />
+            <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-[#9ba0aa] [animation-delay:120ms]" />
+            <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-[#9ba0aa] [animation-delay:240ms]" />
           </div>
         ) : showSentenceScores && logprobs.length > 0 ? (
           <SentenceScoredAnswer content={content} logprobs={logprobs} />
@@ -209,8 +208,7 @@ export function MessageItem({
         {showCopy && (
           <button
             onClick={handleCopy}
-            className="absolute bottom-2 right-2 inline-flex items-center justify-center rounded p-1 opacity-70 hover:opacity-100 transition-opacity"
-            style={{ color: 'var(--msg-ai-text)' }}
+            className="absolute bottom-2 right-2 rounded p-1 text-[#e8e5f2] opacity-70 transition hover:opacity-100"
             title="Copy to clipboard"
             aria-label="Copy to clipboard"
           >
@@ -220,14 +218,17 @@ export function MessageItem({
       </div>
 
       {!isUser && !streaming && logprobs.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <div className="flex flex-wrap items-center gap-2">
           {typeof avgProbability === 'number' && (
-            <span style={{ fontSize: '10px', color: '#6c757d' }}>
+            <span className="text-[10px] text-[#6c757d]">
               avg confidence:{' '}
               <strong
-                style={{
-                  color: sentenceBorderColor(avgProbability),
-                }}
+                className={cn(
+                  sentenceConfidenceLevel(avgProbability) === 'high' && 'text-emerald-400',
+                  sentenceConfidenceLevel(avgProbability) === 'medium' && 'text-amber-400',
+                  sentenceConfidenceLevel(avgProbability) === 'low' && 'text-orange-400',
+                  sentenceConfidenceLevel(avgProbability) === 'very-low' && 'text-rose-400'
+                )}
               >
                 {avgProbability.toFixed(1)}%
               </strong>
@@ -235,15 +236,12 @@ export function MessageItem({
           )}
           <button
             onClick={() => setShowSentenceScores((v) => !v)}
-            style={{
-              fontSize: '10px',
-              padding: '2px 7px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              border: '1px solid #444',
-              background: showSentenceScores ? '#6366f1' : 'transparent',
-              color: showSentenceScores ? '#fff' : '#aaa',
-            }}
+            className={cn(
+              'rounded-[4px] border border-[#444] px-[7px] py-[2px] text-[10px] text-[#aaa] transition',
+              showSentenceScores
+                ? 'border-[#6366f1] bg-[#6366f1] text-white'
+                : 'hover:border-[#666] hover:bg-transparent'
+            )}
             title="Show sentence-level confidence scores"
           >
             {showSentenceScores ? 'hide confidence' : 'show confidence'}
@@ -267,27 +265,20 @@ export function MessageItem({
           </Button>
 
           {imgOpen && (
-            <div className="flex flex-col gap-2 pl-4 border-l-2 border-accent/30">
+            <div className="flex flex-col gap-2 border-l-2 border-[rgba(213,217,224,0.3)] pl-4">
               {debugImages.length > 0 ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '8px',
-                    alignItems: 'flex-start',
-                  }}
-                >
+                <div className="flex flex-wrap items-start gap-2">
                   {debugImages.map((b64, i) => (
                     <img
                       key={i}
                       src={`data:image/png;base64,${b64}`}
-                      style={{ maxWidth: '300px', height: 'auto', borderRadius: '4px' }}
+                      className="h-auto max-w-[300px] rounded-[12px]"
                       alt={`Debug image ${i + 1}`}
                     />
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">No images found on retrieved pages.</p>
+                <p className="text-xs text-[#9ba0aa]">No images found on retrieved pages.</p>
               )}
             </div>
           )}
@@ -310,21 +301,21 @@ export function MessageItem({
           </Button>
 
           {srcOpen && (
-            <div className="flex flex-col gap-2 pl-4 border-l-2 border-accent/30">
+            <div className="flex flex-col gap-2 border-l-2 border-[rgba(213,217,224,0.3)] pl-4">
               {pdfs.map((item) => (
                 <PdfModal
                   key={item.filename}
                   filename={item.filename}
                   chunks={item.chunks}
                   trigger={
-                    <button className="group flex items-center gap-3 bg-surface2 border border-border rounded-md p-3 text-left w-full hover:border-accent/60 hover:bg-surface2/80 transition-colors cursor-pointer">
-                      <FileText size={16} className="text-accent shrink-0" />
+                    <button className="group flex w-full cursor-pointer items-center gap-3 rounded-[12px] border border-[#363b44] bg-[#2a2e36] p-3 text-left transition-colors hover:border-[rgba(213,217,224,0.6)] hover:bg-[rgba(42,46,54,0.8)]">
+                      <FileText size={16} className="shrink-0 text-[#d5d9e0]" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-accent truncate">
+                        <p className="truncate text-xs font-medium text-[#d5d9e0]">
                           {readableTitle(item.filename)}
                         </p>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium text-accent border border-accent/45 bg-accent/12 group-hover:bg-accent/20 group-hover:border-accent/65 transition-colors">
+                          <span className="inline-flex items-center rounded-[8px] border border-[rgba(213,217,224,0.45)] bg-[rgba(213,217,224,0.12)] px-2 py-0.5 text-[11px] font-medium text-[#d5d9e0] transition-colors group-hover:border-[rgba(213,217,224,0.65)] group-hover:bg-[rgba(213,217,224,0.2)]">
                             Open PDF
                           </span>
                         </div>
@@ -339,15 +330,15 @@ export function MessageItem({
       )}
 
       {showFollowups && followups?.length > 0 && (
-        <div className="followup-chips">
-          <span className="followup-label">
+        <div className="mt-[2px] flex flex-wrap items-center gap-[6px]">
+          <span className="mr-[2px] inline-flex select-none items-center gap-1 text-[10px] uppercase tracking-[0.06em] text-[#6e7480]">
             <CornerDownRight size={11} />
             You might also want to know
           </span>
           {followups.map((q, idx) => (
             <button
               key={idx}
-              className="followup-chip"
+              className="inline-flex rounded-full border border-[#363b44] bg-[#2a2e36] px-3 py-[5px] text-left text-[11.5px] leading-[1.4] text-[#d5d9e0] transition hover:border-[#9aa3af] hover:bg-[rgba(213,217,224,0.08)] hover:text-[#ede9e1]"
               onClick={() => onFollowupClick?.(q)}
               title={q}
             >
