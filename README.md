@@ -1,4 +1,9 @@
-# AskUHH – RAG-Based Assistant for University Documents <a name="Introduction"></a>
+# AskUHH – RAG-Based Assistant for University Documents
+
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-latest-green)
+![React](https://img.shields.io/badge/React-18-blue)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
 AskUHH is a document-based chat assistant specifically designed for working with university PDF documents such as examination regulations, study guidelines, and other legal documents of the University of Hamburg.
 
@@ -13,11 +18,28 @@ The current version of the pipeline includes:
 
 The goal is to simplify working with regulation-heavy PDF documents by providing answers that are directly grounded in the user's own files.
 
+![](view.png)
+
 ---
 
-# Architecture <a name="Architecture"></a>
+## Table of Contents
+- [Introduction](#askuhh--rag-based-assistant-for-university-documents)
+- [Architecture](#architecture)
+- [Installation](#installation)
+- [User Guide](#user-guide)
+- [API Overview](#api-overview)
+- [Developer Guide](#developer-guide)
+- [Troubleshooting](#troubleshooting)
+- [Known Limitations](#known-limitations)
+- [Next Steps](#next-steps)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
 
-## System Overview <a name="SystemOverview"></a>
+---
+
+# Architecture
+
+## System Overview
 
 AskUHH consists of three main components orchestrated via Docker Compose:
 
@@ -27,7 +49,7 @@ AskUHH consists of three main components orchestrated via Docker Compose:
 | **Backend** | FastAPI, Python 3.11 | REST API for PDF processing, indexing, retrieval, and LLM streaming |
 | **Ollama** | Ollama (Docker or external host) | Local LLM inference for embeddings, answer generation, and image descriptions |
 
-## Data Flow <a name="DataFlow"></a>
+## Data Flow
 
 1. PDF files are uploaded via the UI or placed directly into the docs folder
 2. During indexing, the backend extracts text chunks and images from the PDFs
@@ -37,7 +59,7 @@ AskUHH consists of three main components orchestrated via Docker Compose:
 6. The LLM generates an answer based exclusively on the retrieved context
 7. The answer is streamed token by token to the frontend, along with sources and follow-up suggestions
 
-## Data Sources <a name="DataSources"></a>
+## Data Sources
 
 | Source | Description | Location |
 |--------|-------------|----------|
@@ -47,9 +69,9 @@ AskUHH consists of three main components orchestrated via Docker Compose:
 
 ---
 
-# Installation <a name="Installation"></a>
+# Installation
 
-## Prerequisites <a name="Prerequisites"></a>
+## Prerequisites
 
 Before running the application, make sure the following tools are installed:
 
@@ -59,7 +81,7 @@ Before running the application, make sure the following tools are installed:
 
 3. **Ollama endpoint**: Either a local Ollama container (optionally with GPU support) or an external Ollama host reachable over the network.
 
-## Installation Steps <a name="InstallationSteps"></a>
+## Installation Steps
 
 1. **Clone the repository**:
    ```bash
@@ -125,9 +147,9 @@ Before running the application, make sure the following tools are installed:
 
 ---
 
-# User Guide <a name="UserGuide"></a>
+# User Guide
 
-## Quick Start <a name="QuickStart"></a>
+## Quick Start
 
 1. Upload one or more PDF files via the sidebar
 2. Click **Index / Re-index** to process the documents
@@ -135,13 +157,13 @@ Before running the application, make sure the following tools are installed:
 4. Ask your question in the chat window
 5. Open source documents directly from the answer cards
 
-## Document Management <a name="DocumentHandling"></a>
+## Document Management
 
 - **Upload**: Use the dropzone or file dialog in the sidebar. Only PDF files are accepted.
 - **Delete**: Individual documents can be removed via the document list in the sidebar.
 - **Re-indexing**: After adding or removing documents, indexing must be re-run via **Index / Re-index** for changes to take effect in retrieval.
 
-## Chat Features <a name="ChatFeatures"></a>
+## Chat Features
 
 - **Streaming answers**: Responses are displayed token by token in real time.
 - **Source references**: Each answer shows the relevant PDF sources with page numbers. Clicking a source opens the highlighted passage in the original PDF.
@@ -151,17 +173,17 @@ Before running the application, make sure the following tools are installed:
 - **Chat history**: Recent messages are stored locally and restored on revisit. The history can be cleared at any time using the trash button.
 - **Cancel**: Ongoing answers can be interrupted at any time using the stop button.
 
-## Indexing Notice <a name="IndexingNote"></a>
+## Indexing Notice
 
 If no documents have been indexed yet, the application displays a notice banner and blocks the chat window. In this case, PDFs must first be uploaded and indexed.
 
 ---
 
-# API Overview <a name="ApiOverview"></a>
+# API Overview
 
 The backend provides a REST API that can also be used independently of the frontend.
 
-## Endpoints <a name="Endpoints"></a>
+## Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -174,7 +196,7 @@ The backend provides a REST API that can also be used independently of the front
 | `/pdf/{filename}` | GET | Serve the original PDF |
 | `/pdf/highlight` | POST | Return a PDF with highlighted chunk locations |
 
-## Example: Streaming Query <a name="QueryExample"></a>
+## Example: Streaming Query
 ```bash
 curl -X POST http://localhost:8123/query/stream \
   -H "Content-Type: application/json" \
@@ -193,9 +215,9 @@ The response is streamed as Server-Sent Events (SSE) with the following event ty
 
 ---
 
-# Developer Guide <a name="DeveloperGuide"></a>
+# Developer Guide
 
-## Project Structure <a name="ProjectStructure"></a>
+## Project Structure
 ```
 askuhh/
 ├── frontend/                    # React + Vite frontend
@@ -235,7 +257,7 @@ askuhh/
 └── README.md
 ```
 
-## Technology Stack <a name="TechStack"></a>
+## Technology Stack
 
 | Area | Technology |
 |------|------------|
@@ -248,7 +270,7 @@ askuhh/
 | Default models | `qwen3-vl:8b-instruct` (LLM + VLM), `snowflake-arctic-embed2` (embeddings) |
 | Containerization | Docker, Docker Compose, Nginx |
 
-## Typical Development Workflow <a name="DevWorkflow"></a>
+## Typical Development Workflow
 
 1. Clone the repository and switch to the `main` branch:
    ```bash
@@ -276,7 +298,7 @@ askuhh/
 
 7. Commit your changes and create a pull request
 
-## Notes on Models <a name="ModelNotes"></a>
+## Notes on Models
 
 - The **LLM model** (`LLM_MODEL`) is used for answer generation, follow-up questions, and language translation.
 - The **embedding model** (`EMBED_MODEL`) creates vector representations of text chunks for semantic retrieval.
@@ -290,7 +312,7 @@ askuhh/
 
 ---
 
-# Troubleshooting <a name="Troubleshooting"></a>
+# Troubleshooting
 
 ## Backend not reachable
 
@@ -318,7 +340,17 @@ askuhh/
 
 ---
 
-# Next Steps <a name="NextSteps"></a>
+# Known Limitations
+
+- **Domain scope**: AskUHH is optimized for German university administrative and legal documents, which explains why its core problem lies in the semantic gap between how students phrase questions and how documents are written. A question like "Wann muss ich mich anmelden?" and the corresponding document text "Anmeldefristen gemäß §4 Abs. 2 FSB" describe the same concept in completely different registers. The embedding model was not fine-tuned on this domain, so these texts end up far apart in vector space even though they are semantically equivalent. Our ablation study measured a Context Recall below 0.10 across all variants, meaning fewer than 10% of relevant document passages made it into the prompt. Combining the current embedding-based search with a keyword search (BM25) would likely help and is noted as a future direction.
+
+- **Retrieval is the primary bottleneck, not generation**: Faithfulness scores of 0.70–0.75 across our evaluation are reasonable for a local 8B model on German legal text. The bigger issue is that if the retrieval step misses the relevant document, the model never had the information needed to answer correctly in the first place.
+
+- **Scanned PDFs**: PDFs that consist of scanned images instead of selectable text cannot be indexed. Only PDFs with embedded text are supported, despite visual content in text-based PDFs is handled via VLM descriptions.
+
+---
+
+# Next Steps
 
 Since this project was developed within a limited timeframe, there are several avenues for future improvement:
 
