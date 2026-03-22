@@ -406,4 +406,8 @@ AskUHH was developed as part of the *Applications with Artificial Intelligence* 
 
 # Contact Information
 
-For questions or suggestions, please reach out via the [GitLab repository](https://git.informatik.uni-hamburg.de/3gorke/askuhh).
+For questions or suggestions, please reach out to: 
+felix.gorke@studium.uni-hamburg.de
+florian.eigendorf@studium.uni-hamburg.de
+mustafa.qarizada@studium.uni-hamburg.de
+maximilian.stoelken@studium.uni-hamburg.de
