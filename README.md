@@ -298,6 +298,20 @@ askuhh/
 
 7. Commit your changes and create a pull request
 
+## Evaluation
+
+The repository includes `eval/run_ragas_eval.py` for evaluating retrieval and answer quality using the RAGAS framework.
+```bash
+pip install ragas langchain-ollama datasets httpx
+python eval/run_ragas_eval.py \
+    --testset eval/testset.json \
+    --backend http://localhost:8123 \
+    --ollama-host http://localhost:11435 \
+    --output results.json
+```
+
+The script queries the running backend for each test question, collects retrieved chunks and generated answers, then runs RAGAS to score faithfulness, answer relevancy, context precision, and context recall. Results are saved as JSON.
+
 ## Notes on Models
 
 - The **LLM model** (`LLM_MODEL`) is used for answer generation, follow-up questions, and language translation.
