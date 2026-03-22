@@ -12,7 +12,7 @@ export function readableTitle(filename) {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-  // PDF viewer modal that can show the original file or a highlighted preview.
+// PDF viewer modal that can show the original file or a highlighted preview.
 export function PdfModal({ filename, trigger, chunks = [] }) {
   const [pdfUrl, setPdfUrl] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -65,29 +65,30 @@ export function PdfModal({ filename, trigger, chunks = [] }) {
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
-            'w-[90vw] h-[90vh] max-w-5xl',
-            'bg-surface border border-border rounded-lg shadow-xl',
-            'flex flex-col',
+            'fixed left-1/2 top-1/2 z-50 flex h-[90vh] w-[90vw] max-w-5xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-[#363b44] bg-[#22252b] shadow-[0_20px_50px_rgba(0,0,0,0.35)]',
             'data-[state=open]:animate-in data-[state=closed]:animate-out',
             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
             'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95'
           )}
         >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-            <Dialog.Title className="text-sm font-medium text-text truncate">
+          <div className="flex shrink-0 items-center justify-between border-b border-[#363b44] px-4 py-3">
+            <Dialog.Title className="truncate text-sm font-medium text-[#ede9e1]">
               {readableTitle(filename)}
             </Dialog.Title>
-            <Dialog.Close className="rounded p-1 hover:bg-surface2 transition-colors text-text-muted hover:text-text">
+            <Dialog.Close className="rounded p-1 text-[#9ba0aa] transition hover:bg-[#2a2e36] hover:text-[#ede9e1]">
               <X size={16} />
             </Dialog.Close>
           </div>
           {isLoading ? (
-            <div className="flex-1 flex items-center justify-center text-text-muted">
+            <div className="flex flex-1 items-center justify-center text-[#9ba0aa]">
               Loading PDF...
             </div>
           ) : pdfUrl ? (
-            <iframe src={pdfUrl} className="flex-1 w-full rounded-b-lg" title={filename} />
+            <iframe
+              src={pdfUrl}
+              className="h-full w-full flex-1 rounded-b-lg border-0"
+              title={filename}
+            />
           ) : null}
         </Dialog.Content>
       </Dialog.Portal>
